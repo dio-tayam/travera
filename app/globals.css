@@ -1,0 +1,108 @@
+@import "tailwindcss";
+@import "tailwindcss-animate";
+
+@theme {
+  --color-primary: #0038a8;
+  --color-primary-foreground: #ffffff;
+  --color-accent: #ce1126;
+  --color-accent-foreground: #ffffff;
+  --color-gold: #fcd116;
+  --color-gold-foreground: #0038a8;
+  --color-surface: #ffffff;
+  --color-background: #f8f9fc;
+  --color-foreground: #0f1117;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-border: #e2e8f0;
+  --color-ring: #0038a8;
+  --color-destructive: #ce1126;
+  --color-destructive-foreground: #ffffff;
+
+  --font-heading: var(--font-plus-jakarta-sans);
+  --font-body: var(--font-dm-sans);
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: var(--font-body), system-ui, sans-serif;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading), system-ui, sans-serif;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.travera-spinner {
+  animation: spin-slow 1.5s linear infinite;
+}
+
+@keyframes slide-in-from-bottom {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slide-in-from-bottom 0.3s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Philippine sun CSS background */
+.ph-sun-bg {
+  background: conic-gradient(
+    from 0deg at 50% 110%,
+    #0038a8 0deg,
+    #0038a8 15deg,
+    rgba(252, 209, 22, 0.15) 15deg,
+    rgba(252, 209, 22, 0.15) 30deg,
+    #0038a8 30deg,
+    #0038a8 45deg,
+    rgba(252, 209, 22, 0.15) 45deg,
+    rgba(252, 209, 22, 0.15) 60deg,
+    #0038a8 60deg,
+    #0038a8 75deg,
+    rgba(252, 209, 22, 0.15) 75deg,
+    rgba(252, 209, 22, 0.15) 90deg,
+    #0038a8 90deg,
+    #0038a8 105deg,
+    rgba(252, 209, 22, 0.15) 105deg,
+    rgba(252, 209, 22, 0.15) 120deg,
+    #0038a8 120deg,
+    #0038a8 135deg,
+    rgba(252, 209, 22, 0.15) 135deg,
+    rgba(252, 209, 22, 0.15) 150deg,
+    #0038a8 150deg,
+    #0038a8 165deg,
+    rgba(252, 209, 22, 0.15) 165deg,
+    rgba(252, 209, 22, 0.15) 180deg,
+    #0038a8 180deg
+  );
+}

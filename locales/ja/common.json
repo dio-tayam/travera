@@ -1,0 +1,141 @@
+{
+  "nav": {
+    "dashboard": "ダッシュボード",
+    "map": "マップ",
+    "budget": "予算",
+    "packing": "荷造り",
+    "docs": "書類",
+    "itinerary": "旅程",
+    "signOut": "サインアウト"
+  },
+  "dashboard": {
+    "greeting": "こんにちは、{{name}}さん！",
+    "myTrips": "マイトリップ",
+    "createTrip": "+ 新しい旅を作成",
+    "noTrips": "まだ旅がありません。最初の冒険を計画しましょう！",
+    "mates": "{{count}}人の仲間",
+    "loading": "読み込み中..."
+  },
+  "auth": {
+    "signIn": "Googleでサインイン",
+    "signingIn": "サインイン中...",
+    "welcome": "計画して。共有して。体験して。",
+    "tagline": "あなたの旅行コンパニオン"
+  },
+  "trip": {
+    "title": "旅のタイトル",
+    "destination": "目的地",
+    "startDate": "出発日",
+    "endDate": "帰着日",
+    "budget": "総予算",
+    "currency": "通貨",
+    "createTrip": "旅を作成",
+    "editTrip": "旅を編集",
+    "deleteTrip": "旅を削除",
+    "shareTrip": "旅を共有",
+    "members": "メンバー",
+    "overview": "概要"
+  },
+  "itinerary": {
+    "day": "{{number}}日目",
+    "addStop": "スポット追加",
+    "editStop": "スポット編集",
+    "deleteStop": "スポット削除",
+    "showMap": "マップを表示",
+    "hideMap": "マップを非表示",
+    "stopTypes": {
+      "hotel": "ホテル",
+      "activity": "アクティビティ",
+      "restaurant": "レストラン",
+      "transit": "交通",
+      "flight": "フライト",
+      "free": "自由時間"
+    },
+    "stopTitle": "スポット名",
+    "address": "住所",
+    "startTime": "開始時間",
+    "duration": "所要時間（分）",
+    "notes": "メモ"
+  },
+  "budget": {
+    "totalBudget": "総予算",
+    "totalSpent": "総支出",
+    "remaining": "残金",
+    "yourShare": "あなたの分担",
+    "addExpense": "支出を追加",
+    "editExpense": "支出を編集",
+    "deleteExpense": "支出を削除",
+    "categories": {
+      "food": "食事",
+      "accommodation": "宿泊",
+      "transport": "交通",
+      "activity": "アクティビティ",
+      "shopping": "ショッピング",
+      "other": "その他"
+    },
+    "settlements": "精算",
+    "owes": "{{from}}は{{to}}に支払うべき",
+    "settled": "精算済み",
+    "markSettled": "精算済みにする"
+  },
+  "packing": {
+    "title": "荷造りリスト",
+    "addItem": "アイテム追加",
+    "generateSuggestions": "提案を生成",
+    "generating": "生成中...",
+    "packed": "梱包済み",
+    "unpacked": "未梱包",
+    "category": "カテゴリー",
+    "assignTo": "担当者",
+    "deleteItem": "アイテムを削除"
+  },
+  "documents": {
+    "title": "書類",
+    "upload": "書類をアップロード",
+    "dropzone": "ここにファイルをドロップするかクリック",
+    "maxSize": "最大10MB",
+    "view": "表示",
+    "delete": "削除",
+    "types": {
+      "flight": "フライト",
+      "hotel": "ホテル",
+      "visa": "ビザ",
+      "other": "その他"
+    }
+  },
+  "share": {
+    "viewing": "{{title}}を閲覧中",
+    "sharedBy": "{{name}}がシェアしました",
+    "cta": "サインインして自分の旅を計画 →",
+    "readOnly": "読み取り専用"
+  },
+  "common": {
+    "save": "保存",
+    "cancel": "キャンセル",
+    "delete": "削除",
+    "edit": "編集",
+    "close": "閉じる",
+    "loading": "読み込み中...",
+    "error": "エラーが発生しました",
+    "success": "成功！",
+    "confirm": "確認",
+    "back": "戻る",
+    "next": "次へ",
+    "search": "検索",
+    "noResults": "結果が見つかりません",
+    "optional": "（任意）"
+  },
+  "language": {
+    "label": "言語",
+    "en": "英語",
+    "ja": "日本語",
+    "ko": "韓国語",
+    "de": "ドイツ語",
+    "nl": "オランダ語",
+    "fr": "フランス語",
+    "es": "スペイン語",
+    "zh": "中国語",
+    "pt": "ポルトガル語",
+    "ar": "アラビア語"
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "nav": {
+    "dashboard": "대시보드",
+    "map": "지도",
+    "budget": "예산",
+    "packing": "짐 싸기",
+    "docs": "서류",
+    "itinerary": "일정",
+    "signOut": "로그아웃"
+  },
+  "dashboard": {
+    "greeting": "안녕하세요, {{name}}님!",
+    "myTrips": "내 여행",
+    "createTrip": "+ 새 여행 만들기",
+    "noTrips": "아직 여행이 없습니다. 첫 번째 모험을 계획해 보세요!",
+    "mates": "{{count}}명의 동행",
+    "loading": "불러오는 중..."
+  },
+  "auth": {
+    "signIn": "Google로 로그인",
+    "signingIn": "로그인 중...",
+    "welcome": "계획하고. 공유하고. 경험하세요.",
+    "tagline": "나만의 여행 동반자"
+  },
+  "trip": {
+    "title": "여행 제목",
+    "destination": "목적지",
+    "startDate": "출발일",
+    "endDate": "귀국일",
+    "budget": "총 예산",
+    "currency": "통화",
+    "createTrip": "여행 만들기",
+    "editTrip": "여행 편집",
+    "deleteTrip": "여행 삭제",
+    "shareTrip": "여행 공유",
+    "members": "멤버",
+    "overview": "개요"
+  },
+  "itinerary": {
+    "day": "{{number}}일차",
+    "addStop": "장소 추가",
+    "editStop": "장소 편집",
+    "deleteStop": "장소 삭제",
+    "showMap": "지도 보기",
+    "hideMap": "지도 숨기기",
+    "stopTypes": {
+      "hotel": "호텔",
+      "activity": "액티비티",
+      "restaurant": "레스토랑",
+      "transit": "교통",
+      "flight": "항공",
+      "free": "자유 시간"
+    },
+    "stopTitle": "장소명",
+    "address": "주소",
+    "startTime": "시작 시간",
+    "duration": "소요 시간(분)",
+    "notes": "메모"
+  },
+  "budget": {
+    "totalBudget": "총 예산",
+    "totalSpent": "총 지출",
+    "remaining": "남은 금액",
+    "yourShare": "내 몫",
+    "addExpense": "지출 추가",
+    "editExpense": "지출 편집",
+    "deleteExpense": "지출 삭제",
+    "categories": {
+      "food": "식비",
+      "accommodation": "숙박",
+      "transport": "교통",
+      "activity": "액티비티",
+      "shopping": "쇼핑",
+      "other": "기타"
+    },
+    "settlements": "정산",
+    "owes": "{{from}}이(가) {{to}}에게 지불해야 함",
+    "settled": "정산 완료",
+    "markSettled": "정산 완료로 표시"
+  },
+  "packing": {
+    "title": "짐 목록",
+    "addItem": "아이템 추가",
+    "generateSuggestions": "추천 생성",
+    "generating": "생성 중...",
+    "packed": "챙김",
+    "unpacked": "미챙김",
+    "category": "카테고리",
+    "assignTo": "담당자",
+    "deleteItem": "아이템 삭제"
+  },
+  "documents": {
+    "title": "서류",
+    "upload": "서류 업로드",
+    "dropzone": "파일을 여기에 드롭하거나 클릭",
+    "maxSize": "최대 10MB",
+    "view": "보기",
+    "delete": "삭제",
+    "types": {
+      "flight": "항공",
+      "hotel": "호텔",
+      "visa": "비자",
+      "other": "기타"
+    }
+  },
+  "share": {
+    "viewing": "{{title}} 보는 중",
+    "sharedBy": "{{name}}이(가) 공유함",
+    "cta": "로그인하여 나만의 여행 계획하기 →",
+    "readOnly": "읽기 전용"
+  },
+  "common": {
+    "save": "저장",
+    "cancel": "취소",
+    "delete": "삭제",
+    "edit": "편집",
+    "close": "닫기",
+    "loading": "불러오는 중...",
+    "error": "오류가 발생했습니다",
+    "success": "성공!",
+    "confirm": "확인",
+    "back": "뒤로",
+    "next": "다음",
+    "search": "검색",
+    "noResults": "결과 없음",
+    "optional": "(선택)"
+  },
+  "language": {
+    "label": "언어",
+    "en": "영어",
+    "ja": "일본어",
+    "ko": "한국어",
+    "de": "독일어",
+    "nl": "네덜란드어",
+    "fr": "프랑스어",
+    "es": "스페인어",
+    "zh": "중국어",
+    "pt": "포르투갈어",
+    "ar": "아랍어"
+  }
+}

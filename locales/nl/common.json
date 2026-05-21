@@ -1,0 +1,141 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "map": "Kaart",
+    "budget": "Budget",
+    "packing": "Paklijst",
+    "docs": "Documenten",
+    "itinerary": "Reisplan",
+    "signOut": "Uitloggen"
+  },
+  "dashboard": {
+    "greeting": "Hallo, {{name}}!",
+    "myTrips": "Mijn Reizen",
+    "createTrip": "+ Nieuwe Reis Maken",
+    "noTrips": "Nog geen reizen. Plan je eerste avontuur!",
+    "mates": "{{count}} reisgenoten",
+    "loading": "Laden..."
+  },
+  "auth": {
+    "signIn": "Inloggen met Google",
+    "signingIn": "Inloggen...",
+    "welcome": "Plan het. Deel het. Beleef het.",
+    "tagline": "Jouw reisgezel"
+  },
+  "trip": {
+    "title": "Reisnaam",
+    "destination": "Bestemming",
+    "startDate": "Vertrekdatum",
+    "endDate": "Terugkomstdatum",
+    "budget": "Totaalbudget",
+    "currency": "Valuta",
+    "createTrip": "Reis Aanmaken",
+    "editTrip": "Reis Bewerken",
+    "deleteTrip": "Reis Verwijderen",
+    "shareTrip": "Reis Delen",
+    "members": "Leden",
+    "overview": "Overzicht"
+  },
+  "itinerary": {
+    "day": "Dag {{number}}",
+    "addStop": "Stop Toevoegen",
+    "editStop": "Stop Bewerken",
+    "deleteStop": "Stop Verwijderen",
+    "showMap": "Kaart Tonen",
+    "hideMap": "Kaart Verbergen",
+    "stopTypes": {
+      "hotel": "Hotel",
+      "activity": "Activiteit",
+      "restaurant": "Restaurant",
+      "transit": "Transit",
+      "flight": "Vlucht",
+      "free": "Vrije Tijd"
+    },
+    "stopTitle": "Stopnaam",
+    "address": "Adres",
+    "startTime": "Starttijd",
+    "duration": "Duur (min.)",
+    "notes": "Notities"
+  },
+  "budget": {
+    "totalBudget": "Totaalbudget",
+    "totalSpent": "Totaal Besteed",
+    "remaining": "Resterend",
+    "yourShare": "Jouw Aandeel",
+    "addExpense": "Uitgave Toevoegen",
+    "editExpense": "Uitgave Bewerken",
+    "deleteExpense": "Uitgave Verwijderen",
+    "categories": {
+      "food": "Eten",
+      "accommodation": "Verblijf",
+      "transport": "Vervoer",
+      "activity": "Activiteit",
+      "shopping": "Winkelen",
+      "other": "Overig"
+    },
+    "settlements": "Afrekeningen",
+    "owes": "{{from}} is schuldig aan {{to}}",
+    "settled": "Vereffend",
+    "markSettled": "Markeer als Vereffend"
+  },
+  "packing": {
+    "title": "Paklijst",
+    "addItem": "Item Toevoegen",
+    "generateSuggestions": "Suggesties Genereren",
+    "generating": "Genereren...",
+    "packed": "Ingepakt",
+    "unpacked": "Niet Ingepakt",
+    "category": "Categorie",
+    "assignTo": "Toewijzen Aan",
+    "deleteItem": "Item Verwijderen"
+  },
+  "documents": {
+    "title": "Documenten",
+    "upload": "Document Uploaden",
+    "dropzone": "Bestand hier neerzetten of klikken",
+    "maxSize": "Max. 10MB",
+    "view": "Bekijken",
+    "delete": "Verwijderen",
+    "types": {
+      "flight": "Vlucht",
+      "hotel": "Hotel",
+      "visa": "Visum",
+      "other": "Overig"
+    }
+  },
+  "share": {
+    "viewing": "{{title}} bekijken",
+    "sharedBy": "gedeeld door {{name}}",
+    "cta": "Inloggen om je eigen reis te plannen →",
+    "readOnly": "Alleen Lezen"
+  },
+  "common": {
+    "save": "Opslaan",
+    "cancel": "Annuleren",
+    "delete": "Verwijderen",
+    "edit": "Bewerken",
+    "close": "Sluiten",
+    "loading": "Laden...",
+    "error": "Er is iets misgegaan",
+    "success": "Gelukt!",
+    "confirm": "Bevestigen",
+    "back": "Terug",
+    "next": "Volgende",
+    "search": "Zoeken",
+    "noResults": "Geen resultaten",
+    "optional": "(optioneel)"
+  },
+  "language": {
+    "label": "Taal",
+    "en": "Engels",
+    "ja": "Japans",
+    "ko": "Koreaans",
+    "de": "Duits",
+    "nl": "Nederlands",
+    "fr": "Frans",
+    "es": "Spaans",
+    "zh": "Chinees",
+    "pt": "Portugees",
+    "ar": "Arabisch"
+  }
+}

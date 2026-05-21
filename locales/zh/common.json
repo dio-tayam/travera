@@ -1,0 +1,13 @@
+{
+  "nav": { "dashboard": "仪表板", "map": "地图", "budget": "预算", "packing": "行李", "docs": "文件", "itinerary": "行程", "signOut": "退出登录" },
+  "dashboard": { "greeting": "你好，{{name}}！", "myTrips": "我的旅行", "createTrip": "+ 创建新旅行", "noTrips": "还没有旅行。开始计划您的第一次冒险！", "mates": "{{count}} 位旅伴", "loading": "加载中..." },
+  "auth": { "signIn": "使用 Google 登录", "signingIn": "登录中...", "welcome": "计划。分享。体验。", "tagline": "您的旅行伙伴" },
+  "trip": { "title": "旅行标题", "destination": "目的地", "startDate": "出发日期", "endDate": "返回日期", "budget": "总预算", "currency": "货币", "createTrip": "创建旅行", "editTrip": "编辑旅行", "deleteTrip": "删除旅行", "shareTrip": "分享旅行", "members": "成员", "overview": "概览" },
+  "itinerary": { "day": "第 {{number}} 天", "addStop": "添加停留点", "editStop": "编辑停留点", "deleteStop": "删除停留点", "showMap": "显示地图", "hideMap": "隐藏地图", "stopTypes": { "hotel": "酒店", "activity": "活动", "restaurant": "餐厅", "transit": "中转", "flight": "航班", "free": "自由时间" }, "stopTitle": "停留点名称", "address": "地址", "startTime": "开始时间", "duration": "时长（分钟）", "notes": "备注" },
+  "budget": { "totalBudget": "总预算", "totalSpent": "总支出", "remaining": "剩余", "yourShare": "您的份额", "addExpense": "添加费用", "editExpense": "编辑费用", "deleteExpense": "删除费用", "categories": { "food": "餐饮", "accommodation": "住宿", "transport": "交通", "activity": "活动", "shopping": "购物", "other": "其他" }, "settlements": "结算", "owes": "{{from}} 欠 {{to}}", "settled": "已结算", "markSettled": "标记为已结算" },
+  "packing": { "title": "行李清单", "addItem": "添加物品", "generateSuggestions": "生成建议", "generating": "生成中...", "packed": "已打包", "unpacked": "未打包", "category": "类别", "assignTo": "分配给", "deleteItem": "删除物品" },
+  "documents": { "title": "文件", "upload": "上传文件", "dropzone": "将文件拖放到此处或单击上传", "maxSize": "最大 10MB", "view": "查看", "delete": "删除", "types": { "flight": "航班", "hotel": "酒店", "visa": "签证", "other": "其他" } },
+  "share": { "viewing": "正在查看 {{title}}", "sharedBy": "由 {{name}} 分享", "cta": "登录以规划您自己的旅行 →", "readOnly": "只读" },
+  "common": { "save": "保存", "cancel": "取消", "delete": "删除", "edit": "编辑", "close": "关闭", "loading": "加载中...", "error": "出错了", "success": "成功！", "confirm": "确认", "back": "返回", "next": "下一步", "search": "搜索", "noResults": "无结果", "optional": "（可选）" },
+  "language": { "label": "语言", "en": "英语", "ja": "日语", "ko": "韩语", "de": "德语", "nl": "荷兰语", "fr": "法语", "es": "西班牙语", "zh": "中文", "pt": "葡萄牙语", "ar": "阿拉伯语" }
+}

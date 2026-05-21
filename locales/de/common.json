@@ -1,0 +1,141 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "map": "Karte",
+    "budget": "Budget",
+    "packing": "Packliste",
+    "docs": "Dokumente",
+    "itinerary": "Reiseplan",
+    "signOut": "Abmelden"
+  },
+  "dashboard": {
+    "greeting": "Hallo, {{name}}!",
+    "myTrips": "Meine Reisen",
+    "createTrip": "+ Neue Reise erstellen",
+    "noTrips": "Noch keine Reisen. Plane dein erstes Abenteuer!",
+    "mates": "{{count}} Mitreisende",
+    "loading": "Lädt..."
+  },
+  "auth": {
+    "signIn": "Mit Google anmelden",
+    "signingIn": "Anmeldung...",
+    "welcome": "Planen. Teilen. Erleben.",
+    "tagline": "Dein Reisebegleiter"
+  },
+  "trip": {
+    "title": "Reisename",
+    "destination": "Ziel",
+    "startDate": "Abreisedatum",
+    "endDate": "Rückkehrdatum",
+    "budget": "Gesamtbudget",
+    "currency": "Währung",
+    "createTrip": "Reise erstellen",
+    "editTrip": "Reise bearbeiten",
+    "deleteTrip": "Reise löschen",
+    "shareTrip": "Reise teilen",
+    "members": "Mitglieder",
+    "overview": "Übersicht"
+  },
+  "itinerary": {
+    "day": "Tag {{number}}",
+    "addStop": "Halt hinzufügen",
+    "editStop": "Halt bearbeiten",
+    "deleteStop": "Halt löschen",
+    "showMap": "Karte anzeigen",
+    "hideMap": "Karte ausblenden",
+    "stopTypes": {
+      "hotel": "Hotel",
+      "activity": "Aktivität",
+      "restaurant": "Restaurant",
+      "transit": "Transit",
+      "flight": "Flug",
+      "free": "Freizeit"
+    },
+    "stopTitle": "Haltname",
+    "address": "Adresse",
+    "startTime": "Startzeit",
+    "duration": "Dauer (Min.)",
+    "notes": "Notizen"
+  },
+  "budget": {
+    "totalBudget": "Gesamtbudget",
+    "totalSpent": "Gesamt ausgegeben",
+    "remaining": "Verbleibend",
+    "yourShare": "Dein Anteil",
+    "addExpense": "Ausgabe hinzufügen",
+    "editExpense": "Ausgabe bearbeiten",
+    "deleteExpense": "Ausgabe löschen",
+    "categories": {
+      "food": "Essen",
+      "accommodation": "Unterkunft",
+      "transport": "Transport",
+      "activity": "Aktivität",
+      "shopping": "Einkaufen",
+      "other": "Sonstiges"
+    },
+    "settlements": "Abrechnungen",
+    "owes": "{{from}} schuldet {{to}}",
+    "settled": "Beglichen",
+    "markSettled": "Als beglichen markieren"
+  },
+  "packing": {
+    "title": "Packliste",
+    "addItem": "Artikel hinzufügen",
+    "generateSuggestions": "Vorschläge generieren",
+    "generating": "Generiere...",
+    "packed": "Eingepackt",
+    "unpacked": "Nicht eingepackt",
+    "category": "Kategorie",
+    "assignTo": "Zuweisen an",
+    "deleteItem": "Artikel löschen"
+  },
+  "documents": {
+    "title": "Dokumente",
+    "upload": "Dokument hochladen",
+    "dropzone": "Datei hier ablegen oder klicken",
+    "maxSize": "Max. 10MB",
+    "view": "Anzeigen",
+    "delete": "Löschen",
+    "types": {
+      "flight": "Flug",
+      "hotel": "Hotel",
+      "visa": "Visum",
+      "other": "Sonstiges"
+    }
+  },
+  "share": {
+    "viewing": "{{title}} anzeigen",
+    "sharedBy": "geteilt von {{name}}",
+    "cta": "Anmelden, um deine eigene Reise zu planen →",
+    "readOnly": "Nur lesen"
+  },
+  "common": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "close": "Schließen",
+    "loading": "Lädt...",
+    "error": "Etwas ist schief gelaufen",
+    "success": "Erfolg!",
+    "confirm": "Bestätigen",
+    "back": "Zurück",
+    "next": "Weiter",
+    "search": "Suchen",
+    "noResults": "Keine Ergebnisse",
+    "optional": "(optional)"
+  },
+  "language": {
+    "label": "Sprache",
+    "en": "Englisch",
+    "ja": "Japanisch",
+    "ko": "Koreanisch",
+    "de": "Deutsch",
+    "nl": "Niederländisch",
+    "fr": "Französisch",
+    "es": "Spanisch",
+    "zh": "Chinesisch",
+    "pt": "Portugiesisch",
+    "ar": "Arabisch"
+  }
+}
