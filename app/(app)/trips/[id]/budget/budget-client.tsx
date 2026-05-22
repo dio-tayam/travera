@@ -6,420 +6,366 @@ import "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/lib/utils";
 import type { Database } from "@/types/database";
-import { Plus, X, Wallet, TrendingUp, TrendingDown, User } from "lucide-react";
+import { Plus, X, Wallet, TrendingUp, TrendingDown, User,
+         Plane, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
-import { TraveraSpinner } from "@/components/shared/travera-spinner";
 
-type Trip = Database["public"]["Tables"]["trips"]["Row"];
+type Trip    = Database["public"]["Tables"]["trips"]["Row"];
 type Expense = Database["public"]["Tables"]["expenses"]["Row"];
-type Split = Database["public"]["Tables"]["expense_splits"]["Row"];
-type Member = {
-  user_id: string;
-  role: string;
+type Split   = Database["public"]["Tables"]["expense_splits"]["Row"];
+type Member  = {
+  user_id: string; role: string;
   profiles: Database["public"]["Tables"]["profiles"]["Row"] | null;
 };
 
-const CATEGORY_EMOJI: Record<string, string> = {
-  food: "🍜",
-  accommodation: "🏨",
-  transport: "🚌",
-  activity: "🎯",
-  shopping: "🛍️",
-  other: "📌",
+const CAT_EMOJI: Record<string, string> = {
+  food:"🍜", accommodation:"🏨", transport:"🚌",
+  activity:"🎯", shopping:"🛍️", other:"📌",
 };
 
-interface BudgetClientProps {
-  trip: Trip;
-  members: Member[];
-  initialExpenses: Expense[];
-  initialSplits: Split[];
-  userId: string;
-  canEdit: boolean;
-}
-
-interface Settlement {
-  from: string;
-  to: string;
-  amount: number;
-}
-
-function computeSettlements(
-  expenses: Expense[],
-  splits: Split[],
-  members: Member[]
-): Settlement[] {
-  const balances: Record<string, number> = {};
-  members.forEach((m) => { balances[m.user_id] = 0; });
-
-  expenses.forEach((expense) => {
-    balances[expense.paid_by] = (balances[expense.paid_by] ?? 0) + expense.amount;
-    const expSplits = splits.filter((s) => s.expense_id === expense.id);
-    expSplits.forEach((split) => {
-      balances[split.user_id] = (balances[split.user_id] ?? 0) - split.share_amount;
-    });
+function computeSettlements(expenses: Expense[], splits: Split[], members: Member[]) {
+  const bal: Record<string,number> = {};
+  members.forEach(m => { bal[m.user_id] = 0; });
+  expenses.forEach(e => {
+    bal[e.paid_by] = (bal[e.paid_by] ?? 0) + Number(e.amount);
+    splits.filter(s => s.expense_id === e.id)
+      .forEach(s => { bal[s.user_id] = (bal[s.user_id] ?? 0) - Number(s.share_amount); });
   });
-
-  const settlements: Settlement[] = [];
-  const debtors = Object.entries(balances).filter(([, b]) => b < -0.01);
-  const creditors = Object.entries(balances).filter(([, b]) => b > 0.01);
-
-  for (const [debtor, debtAmt] of debtors) {
-    let remaining = Math.abs(debtAmt);
-    for (const [creditor, credAmt] of creditors) {
-      if (remaining < 0.01) break;
-      if (credAmt < 0.01) continue;
-      const settle = Math.min(remaining, credAmt);
-      settlements.push({ from: debtor, to: creditor, amount: Math.round(settle * 100) / 100 });
-      remaining -= settle;
+  const out: { from:string; to:string; amount:number }[] = [];
+  const debtors   = Object.entries(bal).filter(([,b]) => b < -0.01).map(([id,b]) => ({ id, b: Math.abs(b) }));
+  const creditors = Object.entries(bal).filter(([,b]) => b >  0.01).map(([id,b]) => ({ id, b }));
+  for (const d of debtors) {
+    let rem = d.b;
+    for (const c of creditors) {
+      if (rem < 0.01 || c.b < 0.01) continue;
+      const amt = Math.min(rem, c.b);
+      out.push({ from: d.id, to: c.id, amount: Math.round(amt * 100) / 100 });
+      rem -= amt; c.b -= amt;
     }
   }
-
-  return settlements;
+  return out;
 }
 
-export function BudgetClient({
-  trip,
-  members,
-  initialExpenses,
-  initialSplits,
-  userId,
-  canEdit,
-}: BudgetClientProps) {
+interface Props {
+  trip: Trip; members: Member[];
+  initialExpenses: Expense[]; initialSplits: Split[];
+  userId: string; canEdit: boolean;
+}
+
+export function BudgetClient({ trip, members, initialExpenses, initialSplits, userId, canEdit }: Props) {
   const { t } = useTranslation("common");
   const supabase = createClient();
-  const [expenses, setExpenses] = useState<Expense[]>(initialExpenses);
-  const [splits, setSplits] = useState<Split[]>(initialSplits);
-  const [showAdd, setShowAdd] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [expenses, setExpenses] = useState(initialExpenses);
+  const [splits, setSplits]     = useState(initialSplits);
+  const [showAdd, setShowAdd]   = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string|null>(null);
   const [form, setForm] = useState({
-    description: "",
-    amount: "",
-    currency: trip.currency,
-    category: "food" as Expense["category"],
+    description:"", amount:"", currency: trip.currency,
+    category:"food" as Expense["category"],
     date: new Date().toISOString().split("T")[0],
-    paid_by: userId,
-    split_equally: true,
+    paid_by: userId, split_equally: true,
   });
 
-  // Realtime
   useEffect(() => {
-    const channel = supabase
-      .channel(`expenses:${trip.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "expenses", filter: `trip_id=eq.${trip.id}` }, () => {
-        supabase.from("expenses").select("*").eq("trip_id", trip.id).order("date", { ascending: false })
-          .then(({ data }) => { if (data) setExpenses(data); });
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [trip.id, supabase]);
+    const ch = supabase.channel(`expenses:${trip.id}`)
+      .on("postgres_changes",{ event:"*", schema:"public", table:"expenses",
+          filter:`trip_id=eq.${trip.id}` }, () => {
+        supabase.from("expenses").select("*").eq("trip_id", trip.id)
+          .order("date",{ ascending:false }).then(({ data }) => { if (data) setExpenses(data); });
+      }).subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [trip.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const totalSpent = expenses.reduce((s, e) => s + Number(e.amount), 0);
-  const totalBudget = trip.total_budget ?? 0;
-  const remaining = totalBudget - totalSpent;
-  const myExpenses = expenses.filter((e) => e.paid_by === userId);
-  const myTotal = myExpenses.reduce((s, e) => s + Number(e.amount), 0);
-  const mySplits = splits.filter((s) => s.user_id === userId);
-  const myShare = mySplits.reduce((s, sp) => s + Number(sp.share_amount), 0);
-
+  const totalSpent  = expenses.reduce((s,e) => s + Number(e.amount), 0);
+  const budget      = trip.total_budget ?? 0;
+  const remaining   = budget - totalSpent;
+  const myShare     = splits.filter(s => s.user_id === userId)
+    .reduce((s, sp) => s + Number(sp.share_amount), 0);
   const settlements = computeSettlements(expenses, splits, members);
 
-  const groupedExpenses = expenses.reduce<Record<string, Expense[]>>((acc, e) => {
-    const cat = e.category ?? "other";
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(e);
+  const grouped = expenses.reduce<Record<string,Expense[]>>((acc,e) => {
+    const c = e.category ?? "other";
+    if (!acc[c]) acc[c] = [];
+    acc[c].push(e);
     return acc;
   }, {});
 
-  function getMemberName(uid: string) {
-    const m = members.find((m) => m.user_id === uid);
-    return m?.profiles?.display_name ?? uid.slice(0, 8);
-  }
+  const getName = (uid: string) =>
+    members.find(m => m.user_id === uid)?.profiles?.display_name ?? uid.slice(0,8);
 
-  async function handleAddExpense(e: React.FormEvent) {
+  async function addExpense(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
-    setLoading(true);
+    setLoading(true); setError(null);
     try {
-      const { data: expense, error } = await supabase
-        .from("expenses")
-        .insert({
-          trip_id: trip.id,
-          paid_by: form.paid_by,
-          amount: parseFloat(form.amount),
-          currency: form.currency,
-          category: form.category,
-          description: form.description || null,
-          date: form.date,
-        })
-        .select()
-        .single();
+      const { data: exp, error: err } = await supabase.from("expenses").insert({
+        trip_id: trip.id, paid_by: form.paid_by,
+        amount: parseFloat(form.amount), currency: form.currency,
+        category: form.category, description: form.description || null, date: form.date,
+      }).select().single();
+      if (err) throw err;
 
-      if (error) throw error;
-
-      // Split equally among all members
       if (form.split_equally && members.length > 0) {
-        const share = parseFloat(form.amount) / members.length;
+        const share = Math.round((parseFloat(form.amount) / members.length) * 100) / 100;
         await supabase.from("expense_splits").insert(
-          members.map((m) => ({
-            expense_id: expense.id,
-            user_id: m.user_id,
-            share_amount: Math.round(share * 100) / 100,
-            is_settled: false,
-          }))
+          members.map(m => ({ expense_id: exp.id, user_id: m.user_id, share_amount: share, is_settled: false }))
         );
       }
-
       toast.success("Expense added!");
       setShowAdd(false);
-      setForm((f) => ({ ...f, description: "", amount: "" }));
-
-      // Refresh
-      const { data: fresh } = await supabase
-        .from("expenses")
-        .select("*")
-        .eq("trip_id", trip.id)
-        .order("date", { ascending: false });
-      if (fresh) setExpenses(fresh);
-    } catch {
-      toast.error("Failed to add expense");
-    } finally {
-      setLoading(false);
-    }
+      setForm(f => ({ ...f, description:"", amount:"" }));
+      const { data } = await supabase.from("expenses").select("*").eq("trip_id", trip.id).order("date",{ascending:false});
+      if (data) setExpenses(data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to add expense";
+      setError(msg);
+    } finally { setLoading(false); }
   }
 
-  async function deleteExpense(id: string) {
+  async function removeExpense(id: string) {
     await supabase.from("expense_splits").delete().eq("expense_id", id);
     await supabase.from("expenses").delete().eq("id", id);
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
-    setSplits((prev) => prev.filter((s) => s.expense_id !== id));
-    toast.success("Expense deleted");
+    setExpenses(p => p.filter(e => e.id !== id));
+    setSplits(p => p.filter(s => s.expense_id !== id));
+    toast.success("Expense removed");
   }
 
+  const spentPct = budget > 0 ? Math.min((totalSpent / budget) * 100, 100) : 0;
+
   return (
-    <div className="min-h-screen pb-8" style={{ backgroundColor: "var(--color-background)" }}>
+    <div className="min-h-screen pb-8 animate-fade-in" style={{ background:"var(--color-background)" }}>
+
       {/* Header */}
-      <div className="px-4 lg:px-6 pt-6 pb-4 flex items-center justify-between">
+      <div className="px-4 lg:px-8 pt-6 pb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ fontFamily: "var(--font-heading)" }}>
+          <h1 className="text-xl font-bold text-slate-900" style={{ fontFamily:"var(--font-heading)" }}>
             {t("nav.budget")}
           </h1>
-          <p className="text-sm text-gray-500" style={{ fontFamily: "var(--font-body)" }}>
-            {trip.title}
-          </p>
+          <p className="text-sm text-slate-400 mt-0.5">{trip.title}</p>
         </div>
         {canEdit && (
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white hover:opacity-90"
-            style={{ backgroundColor: "var(--color-primary)", fontFamily: "var(--font-body)" }}
-          >
-            <Plus size={16} />
-            {t("budget.addExpense")}
+          <button onClick={() => setShowAdd(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold
+                             text-white budget-gradient hover:opacity-90 transition-all active:scale-95
+                             shadow-sm shadow-amber-200">
+            <Plus size={15}/> Add expense
           </button>
         )}
       </div>
 
       {/* Summary cards */}
-      <div className="px-4 lg:px-6 grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="px-4 lg:px-8 grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         {[
-          { label: t("budget.totalBudget"), value: formatCurrency(totalBudget, trip.currency), icon: Wallet, color: "var(--color-primary)" },
-          { label: t("budget.totalSpent"), value: formatCurrency(totalSpent, trip.currency), icon: TrendingUp, color: "var(--color-accent)" },
-          { label: t("budget.remaining"), value: formatCurrency(remaining, trip.currency), icon: TrendingDown, color: remaining >= 0 ? "#16a34a" : "var(--color-accent)" },
-          { label: t("budget.yourShare"), value: formatCurrency(myShare, trip.currency), icon: User, color: "#7c3aed" },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div
-            key={label}
-            className="bg-white rounded-xl p-4 shadow-sm"
-            style={{ borderTop: `3px solid ${color}` }}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <Icon size={14} style={{ color }} aria-hidden="true" />
-              <span className="text-xs text-gray-500" style={{ fontFamily: "var(--font-body)" }}>{label}</span>
+          { label:t("budget.totalBudget"), value:formatCurrency(budget,trip.currency),
+            icon:Wallet, color:"#2563eb", bg:"#eff6ff", border:"#bfdbfe" },
+          { label:t("budget.totalSpent"),  value:formatCurrency(totalSpent,trip.currency),
+            icon:TrendingUp, color:"#f59e0b", bg:"#fffbeb", border:"#fde68a" },
+          { label:t("budget.remaining"),   value:formatCurrency(remaining,trip.currency),
+            icon:TrendingDown, color: remaining>=0?"#10b981":"#ef4444",
+            bg: remaining>=0?"#ecfdf5":"#fef2f2",
+            border: remaining>=0?"#a7f3d0":"#fecaca" },
+          { label:t("budget.yourShare"),   value:formatCurrency(myShare,trip.currency),
+            icon:User, color:"#8b5cf6", bg:"#f5f3ff", border:"#ddd6fe" },
+        ].map(({ label, value, icon:Icon, color, bg, border }) => (
+          <div key={label} className="card p-4 rounded-2xl"
+               style={{ borderTop:`3px solid ${color}` }}>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                   style={{ backgroundColor: bg, border: `1px solid ${border}` }}>
+                <Icon size={13} style={{ color }} aria-hidden="true"/>
+              </div>
+              <span className="text-xs text-slate-500 font-medium truncate">{label}</span>
             </div>
-            <p className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--color-foreground)" }}>
+            <p className="text-xl font-bold" style={{ color, fontFamily:"var(--font-heading)" }}>
               {value}
             </p>
           </div>
         ))}
       </div>
 
-      <div className="px-4 lg:px-6 grid lg:grid-cols-2 gap-6">
-        {/* Expenses by category */}
-        <div className="space-y-4">
-          <h2 className="font-bold text-base" style={{ fontFamily: "var(--font-heading)" }}>Expenses</h2>
-          {Object.entries(groupedExpenses).map(([category, catExpenses]) => (
-            <div key={category} className="bg-white rounded-xl shadow-sm overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-50">
-                <span className="text-base">{CATEGORY_EMOJI[category]}</span>
-                <span className="text-sm font-semibold" style={{ fontFamily: "var(--font-heading)" }}>
-                  {t(`budget.categories.${category}`)}
-                </span>
-                <span className="ml-auto text-sm font-semibold" style={{ fontFamily: "var(--font-body)", color: "var(--color-primary)" }}>
-                  {formatCurrency(catExpenses.reduce((s, e) => s + Number(e.amount), 0), trip.currency)}
+      {/* Progress bar */}
+      {budget > 0 && (
+        <div className="px-4 lg:px-8 mb-5">
+          <div className="card p-4 rounded-2xl">
+            <div className="flex justify-between text-xs text-slate-500 mb-2 font-medium">
+              <span>Spent: {Math.round(spentPct)}%</span>
+              <span>{formatCurrency(totalSpent,trip.currency)} / {formatCurrency(budget,trip.currency)}</span>
+            </div>
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-700"
+                   style={{
+                     width:`${spentPct}%`,
+                     background: spentPct > 90 ? "#ef4444" : spentPct > 70 ? "#f59e0b" : "#10b981"
+                   }}/>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="px-4 lg:px-8 grid lg:grid-cols-2 gap-5">
+        {/* Expenses */}
+        <div className="space-y-3">
+          <h2 className="font-bold text-slate-900 text-base" style={{ fontFamily:"var(--font-heading)" }}>
+            Expenses
+          </h2>
+          {expenses.length === 0 ? (
+            <div className="card p-10 text-center rounded-2xl">
+              <Plane size={36} className="mx-auto text-slate-200 -rotate-45 mb-3" aria-hidden="true"/>
+              <p className="text-sm text-slate-400">No expenses yet. Start tracking!</p>
+            </div>
+          ) : Object.entries(grouped).map(([cat, catExp]) => (
+            <div key={cat} className="card overflow-hidden rounded-2xl">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-50 bg-slate-50/80">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">{CAT_EMOJI[cat]}</span>
+                  <span className="text-sm font-semibold text-slate-700"
+                        style={{ fontFamily:"var(--font-heading)" }}>
+                    {t(`budget.categories.${cat}`)}
+                  </span>
+                </div>
+                <span className="text-sm font-bold text-amber-600">
+                  {formatCurrency(catExp.reduce((s,e)=>s+Number(e.amount),0), trip.currency)}
                 </span>
               </div>
-              {catExpenses.map((expense) => (
-                <div key={expense.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+              {catExp.map(exp => (
+                <div key={exp.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50
+                                              border-b border-slate-50 last:border-0 group transition-colors">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate" style={{ fontFamily: "var(--font-body)" }}>
-                      {expense.description ?? t(`budget.categories.${expense.category}`)}
+                    <p className="text-sm font-medium text-slate-800 truncate">
+                      {exp.description ?? t(`budget.categories.${exp.category}`)}
                     </p>
-                    <p className="text-xs text-gray-400" style={{ fontFamily: "var(--font-body)" }}>
-                      {expense.date} · Paid by {getMemberName(expense.paid_by)}
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {exp.date} · {getName(exp.paid_by)}
                     </p>
                   </div>
-                  <span className="text-sm font-semibold" style={{ fontFamily: "var(--font-body)" }}>
-                    {formatCurrency(expense.amount, expense.currency)}
+                  <span className="text-sm font-semibold text-slate-900 shrink-0">
+                    {formatCurrency(exp.amount, exp.currency)}
                   </span>
-                  {canEdit && expense.paid_by === userId && (
-                    <button
-                      onClick={() => deleteExpense(expense.id)}
-                      className="text-gray-300 hover:text-red-400 ml-1"
-                      aria-label="Delete expense"
-                    >
-                      <X size={14} />
+                  {canEdit && (
+                    <button onClick={() => removeExpense(exp.id)}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded-lg
+                                       text-slate-300 hover:text-red-400 transition-all"
+                            aria-label="Delete expense">
+                      <X size={13}/>
                     </button>
                   )}
                 </div>
               ))}
             </div>
           ))}
-          {expenses.length === 0 && (
-            <div className="bg-white rounded-xl p-8 text-center shadow-sm">
-              <p className="text-sm text-gray-400" style={{ fontFamily: "var(--font-body)" }}>
-                No expenses yet. Start tracking!
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Settlements */}
-        <div className="space-y-4">
-          <h2 className="font-bold text-base" style={{ fontFamily: "var(--font-heading)" }}>
+        <div className="space-y-3">
+          <h2 className="font-bold text-slate-900 text-base" style={{ fontFamily:"var(--font-heading)" }}>
             {t("budget.settlements")}
           </h2>
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div className="card overflow-hidden rounded-2xl">
             {settlements.length === 0 ? (
-              <div className="p-6 text-center">
-                <p className="text-sm text-gray-400" style={{ fontFamily: "var(--font-body)" }}>
-                  All settled up! 🎉
-                </p>
+              <div className="p-8 text-center">
+                <p className="text-3xl mb-2">🎉</p>
+                <p className="text-sm text-slate-500 font-semibold">All settled up!</p>
               </div>
-            ) : (
-              settlements.map((s, i) => (
-                <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium" style={{ fontFamily: "var(--font-body)" }}>
-                      <span style={{ color: "var(--color-accent)" }}>{getMemberName(s.from)}</span>
-                      {" owes "}
-                      <span style={{ color: "var(--color-primary)" }}>{getMemberName(s.to)}</span>
-                    </p>
-                  </div>
-                  <span className="text-sm font-bold" style={{ fontFamily: "var(--font-body)", color: "var(--color-primary)" }}>
-                    {formatCurrency(s.amount, trip.currency)}
-                  </span>
-                </div>
-              ))
-            )}
+            ) : settlements.map((s,i) => (
+              <div key={i} className="flex items-center justify-between px-4 py-3.5
+                                      border-b border-slate-50 last:border-0">
+                <p className="text-sm">
+                  <span className="font-semibold text-red-500">{getName(s.from)}</span>
+                  <span className="text-slate-400 mx-1.5">owes</span>
+                  <span className="font-semibold text-blue-600">{getName(s.to)}</span>
+                </p>
+                <span className="text-sm font-bold text-slate-900">
+                  {formatCurrency(s.amount, trip.currency)}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
       {/* Add expense dialog */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100">
-              <h2 className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)" }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center
+                        p-0 sm:p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
+             role="dialog" aria-modal="true">
+          <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl
+                          shadow-2xl animate-slide-up overflow-hidden">
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-900" style={{ fontFamily:"var(--font-heading)" }}>
                 {t("budget.addExpense")}
               </h2>
-              <button onClick={() => setShowAdd(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg" aria-label="Close">
-                <X size={20} />
+              <button onClick={() => setShowAdd(false)}
+                      className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 transition-colors">
+                <X size={18}/>
               </button>
             </div>
-            <form onSubmit={handleAddExpense} className="p-6 space-y-4">
-              <div className="space-y-1">
-                <label className="text-sm font-medium" style={{ fontFamily: "var(--font-body)" }}>Description</label>
-                <input
-                  type="text"
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2"
-                  style={{ fontFamily: "var(--font-body)" }}
-                  placeholder="Dinner at Ippudo"
-                />
+
+            {error && (
+              <div className="mx-6 mt-4 flex gap-2 items-start bg-red-50 border border-red-200
+                              rounded-xl p-3 text-sm text-red-700" role="alert">
+                <AlertCircle size={15} className="mt-0.5 shrink-0"/><p>{error}</p>
               </div>
+            )}
+
+            <form onSubmit={addExpense} className="p-6 space-y-4">
+              <input type="text" placeholder="Description (optional)"
+                     value={form.description}
+                     onChange={e => setForm(f=>({...f,description:e.target.value}))}
+                     className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm
+                                focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"/>
+
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium" style={{ fontFamily: "var(--font-body)" }}>Amount *</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    step="0.01"
-                    value={form.amount}
-                    onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2"
-                    style={{ fontFamily: "var(--font-body)" }}
-                    placeholder="1500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium" style={{ fontFamily: "var(--font-body)" }}>Category</label>
-                  <select
-                    value={form.category}
-                    onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as Expense["category"] }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 bg-white"
-                    style={{ fontFamily: "var(--font-body)" }}
-                  >
-                    {Object.keys(CATEGORY_EMOJI).map((cat) => (
-                      <option key={cat} value={cat}>{CATEGORY_EMOJI[cat]} {t(`budget.categories.${cat}`)}</option>
-                    ))}
-                  </select>
-                </div>
+                <input type="number" required min="0" step="0.01" placeholder="Amount"
+                       value={form.amount}
+                       onChange={e => setForm(f=>({...f,amount:e.target.value}))}
+                       className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm
+                                  focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"/>
+                <select value={form.category}
+                        onChange={e => setForm(f=>({...f,category:e.target.value as Expense["category"]}))}
+                        className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow">
+                  {Object.keys(CAT_EMOJI).map(c => (
+                    <option key={c} value={c}>{CAT_EMOJI[c]} {t(`budget.categories.${c}`)}</option>
+                  ))}
+                </select>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium" style={{ fontFamily: "var(--font-body)" }}>Paid by</label>
-                  <select
-                    value={form.paid_by}
-                    onChange={(e) => setForm((f) => ({ ...f, paid_by: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none"
-                    style={{ fontFamily: "var(--font-body)" }}
-                  >
-                    {members.map((m) => (
-                      <option key={m.user_id} value={m.user_id}>
-                        {m.profiles?.display_name ?? "Member"}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium" style={{ fontFamily: "var(--font-body)" }}>Date</label>
-                  <input
-                    type="date"
-                    value={form.date}
-                    onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2"
-                    style={{ fontFamily: "var(--font-body)" }}
-                  />
-                </div>
+                <select value={form.paid_by}
+                        onChange={e => setForm(f=>({...f,paid_by:e.target.value}))}
+                        className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow">
+                  {members.map(m => (
+                    <option key={m.user_id} value={m.user_id}>
+                      {m.profiles?.display_name ?? "Member"}
+                    </option>
+                  ))}
+                </select>
+                <input type="date" value={form.date}
+                       onChange={e => setForm(f=>({...f,date:e.target.value}))}
+                       className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm
+                                  focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"/>
               </div>
-              <label className="flex items-center gap-2 text-sm" style={{ fontFamily: "var(--font-body)" }}>
-                <input
-                  type="checkbox"
-                  checked={form.split_equally}
-                  onChange={(e) => setForm((f) => ({ ...f, split_equally: e.target.checked }))}
-                  className="rounded"
-                />
-                Split equally among all members
+
+              <label className="flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer select-none">
+                <input type="checkbox" checked={form.split_equally}
+                       onChange={e => setForm(f=>({...f,split_equally:e.target.checked}))}
+                       className="rounded border-slate-300 text-blue-600 w-4 h-4"/>
+                Split equally among all travelers
               </label>
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowAdd(false)} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50" style={{ fontFamily: "var(--font-body)" }}>
+
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setShowAdd(false)}
+                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm
+                                   font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" disabled={loading} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-60 hover:opacity-90" style={{ backgroundColor: "var(--color-primary)", fontFamily: "var(--font-body)" }}>
-                  {loading && <TraveraSpinner size={16} />}
-                  {t("common.save")}
+                <button type="submit" disabled={loading}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5
+                                   rounded-xl text-sm font-semibold text-white budget-gradient
+                                   disabled:opacity-60 hover:opacity-90 transition-all active:scale-95">
+                  {loading && <Plane size={14} className="animate-plane-fly -rotate-45"/>}
+                  {loading ? "Adding…" : t("common.save")}
                 </button>
               </div>
             </form>

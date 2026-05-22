@@ -11,9 +11,9 @@ export default async function TripLayout({
   const { id } = await params;
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-slate-50">
       <Sidebar tripId={id} />
-      <div className="flex-1 overflow-hidden relative">
+      <div className="flex-1 overflow-hidden relative pb-14 lg:pb-0">
         {children}
       </div>
       <MobileNav tripId={id} />

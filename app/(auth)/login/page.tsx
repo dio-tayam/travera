@@ -2,25 +2,62 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { TraveraSpinner } from "@/components/shared/travera-spinner";
+import { Plane, Map, Users, Wallet, Package, FileText, Globe, Shield } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
+const FEATURES = [
+  {
+    icon: Map,
+    title: "Interactive Itinerary",
+    desc: "Plan every day with Google Maps, drag-and-drop stops and route lines.",
+    color: "#6366f1", bg: "#eef2ff",
+  },
+  {
+    icon: Users,
+    title: "Real-time Collaboration",
+    desc: "Invite friends and edit together live — no refresh needed.",
+    color: "#2563eb", bg: "#eff6ff",
+  },
+  {
+    icon: Wallet,
+    title: "Expense Splitting",
+    desc: "Track shared costs and auto-calculate who owes who.",
+    color: "#f59e0b", bg: "#fffbeb",
+  },
+  {
+    icon: Package,
+    title: "Smart Packing Lists",
+    desc: "AI-generated suggestions based on your destination and trip length.",
+    color: "#10b981", bg: "#ecfdf5",
+  },
+  {
+    icon: FileText,
+    title: "Document Storage",
+    desc: "Upload passports, visas and flight tickets — access anywhere.",
+    color: "#8b5cf6", bg: "#f5f3ff",
+  },
+  {
+    icon: Globe,
+    title: "10 Languages",
+    desc: "Fully translated in English, Japanese, Korean, German and more.",
+    color: "#0ea5e9", bg: "#f0f9ff",
+  },
+];
+
 export default function LoginPage() {
   const { t } = useTranslation("common");
   const [loading, setLoading] = useState(false);
 
-  async function handleGoogleSignIn() {
+  async function signInWithGoogle() {
     setLoading(true);
     try {
       const supabase = createClient();
       await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
+        options: { redirectTo: `${window.location.origin}/auth/callback` },
       });
     } catch {
       setLoading(false);
@@ -28,114 +65,129 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* Left — Philippine hero */}
-      <div
-        className="ph-sun-bg relative flex-1 flex flex-col items-center justify-center p-8 min-h-[40vh] lg:min-h-screen overflow-hidden"
-      >
-        <div
-          className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full pointer-events-none"
-          style={{
-            background:
-              "radial-gradient(ellipse at center bottom, rgba(252,209,22,0.18) 0%, transparent 70%)",
-          }}
-        />
-        <div className="relative z-10 text-center">
-          <h1
-            className="text-5xl lg:text-6xl font-extrabold text-white tracking-tight mb-3 select-none"
-            style={{ fontFamily: "var(--font-heading)" }}
-          >
-            Travera
-          </h1>
-          <div className="flex justify-center my-6">
-            <svg width="72" height="72" viewBox="0 0 100 100" aria-hidden="true">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <line
-                  key={i}
-                  x1="50" y1="50"
-                  x2={50 + 42 * Math.cos(((i * 45 - 90) * Math.PI) / 180)}
-                  y2={50 + 42 * Math.sin(((i * 45 - 90) * Math.PI) / 180)}
-                  stroke="#FCD116" strokeWidth="5" strokeLinecap="round"
-                />
-              ))}
-              {Array.from({ length: 8 }).map((_, i) => (
-                <line
-                  key={`s${i}`}
-                  x1={50 + 22 * Math.cos(((i * 45 + 22.5 - 90) * Math.PI) / 180)}
-                  y1={50 + 22 * Math.sin(((i * 45 + 22.5 - 90) * Math.PI) / 180)}
-                  x2={50 + 34 * Math.cos(((i * 45 + 22.5 - 90) * Math.PI) / 180)}
-                  y2={50 + 34 * Math.sin(((i * 45 + 22.5 - 90) * Math.PI) / 180)}
-                  stroke="#FCD116" strokeWidth="3.5" strokeLinecap="round"
-                />
-              ))}
-              <circle cx="50" cy="50" r="16" fill="#FCD116" />
-            </svg>
-          </div>
-          <p
-            className="text-white/80 text-lg lg:text-xl max-w-xs mx-auto leading-relaxed"
-            style={{ fontFamily: "var(--font-body)" }}
-          >
-            {t("auth.welcome")}
-          </p>
-        </div>
-      </div>
+    <div className="min-h-dvh bg-slate-50 flex flex-col">
 
-      {/* Right — sign-in card */}
-      <div className="flex flex-1 items-center justify-center p-6 bg-white lg:max-w-md xl:max-w-lg">
-        <div className="w-full max-w-sm space-y-8">
-          <div className="lg:hidden text-center">
-            <h2
-              className="text-3xl font-extrabold"
-              style={{ color: "var(--color-primary)", fontFamily: "var(--font-heading)" }}
-            >
+      <main className="flex-1 flex flex-col lg:flex-row items-center justify-center
+                       px-6 py-12 lg:px-16 lg:py-0 gap-14 max-w-6xl mx-auto w-full">
+
+        {/* ── Left: Branding + features ──────────────────────────────── */}
+        <div className="flex-1 flex flex-col gap-8 lg:py-16">
+
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl sky-gradient flex items-center justify-center
+                            shadow-md shadow-blue-200">
+              <Plane size={18} className="text-white -rotate-45"/>
+            </div>
+            <span className="text-2xl font-extrabold text-blue-600"
+                  style={{ fontFamily: "var(--font-heading)" }}>
               Travera
-            </h2>
+            </span>
           </div>
 
-          <div className="space-y-2">
-            <h2
-              className="text-2xl font-bold"
-              style={{ color: "var(--color-foreground)", fontFamily: "var(--font-heading)" }}
-            >
-              {t("auth.tagline")}
-            </h2>
-            <p
-              className="text-sm"
-              style={{ color: "var(--color-muted-foreground)", fontFamily: "var(--font-body)" }}
-            >
-              Sign in to start collaborating on your next trip.
+          {/* Headline */}
+          <div className="space-y-3">
+            <h1 className="text-4xl lg:text-5xl font-extrabold text-slate-900 leading-tight"
+                style={{ fontFamily: "var(--font-heading)" }}>
+              The smarter way to<br/>
+              <span className="text-blue-600">plan your travels</span>
+            </h1>
+            <p className="text-slate-500 text-lg leading-relaxed">
+              From idea to adventure — plan it, share it, live it.
             </p>
           </div>
 
-          <button
-            onClick={handleGoogleSignIn}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-xl text-white font-semibold text-base transition-opacity disabled:opacity-60 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-offset-2"
-            style={{
-              backgroundColor: "var(--color-primary)",
-              fontFamily: "var(--font-body)",
-              outlineColor: "var(--color-primary)",
-            }}
-            aria-label={t("auth.signIn")}
-          >
-            {loading ? (
-              <TraveraSpinner size={22} />
-            ) : (
-              <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
-                <path fill="#fff" d="M44.5 20H24v8.5h11.7C34.3 33.6 29.7 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 6 1.1 8.1 3L38.7 8C34.7 4.3 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11.7 0 21.3-8.3 22.7-19.5.1-.8.3-1.6.3-2.5 0-1.5-.1-2.7-.5-4z"/>
-              </svg>
-            )}
-            <span>{loading ? t("auth.signingIn") : t("auth.signIn")}</span>
-          </button>
-
-          <p
-            className="text-xs text-center"
-            style={{ color: "var(--color-muted-foreground)", fontFamily: "var(--font-body)" }}
-          >
-            By continuing, you agree to our Terms of Service and Privacy Policy.
-          </p>
+          {/* Feature grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {FEATURES.map(({ icon: Icon, title, desc, color, bg }) => (
+              <div key={title} className="flex items-start gap-3 group">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5
+                                transition-transform duration-200 group-hover:scale-110"
+                     style={{ backgroundColor: bg }}>
+                  <Icon size={16} style={{ color }} aria-hidden="true"/>
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-800 text-sm"
+                     style={{ fontFamily: "var(--font-heading)" }}>{title}</p>
+                  <p className="text-slate-500 text-xs mt-0.5 leading-relaxed">{desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+
+        {/* ── Right: Sign-in card ─────────────────────────────────────── */}
+        <div className="w-full lg:w-96 shrink-0">
+          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/80
+                          border border-slate-100 p-8 space-y-6 animate-scale-in">
+
+            <div className="space-y-1.5">
+              <h2 className="text-2xl font-bold text-slate-900"
+                  style={{ fontFamily: "var(--font-heading)" }}>
+                Welcome back
+              </h2>
+              <p className="text-slate-500 text-sm">
+                Sign in to continue to your dashboard
+              </p>
+            </div>
+
+            <button
+              onClick={signInWithGoogle}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-3 px-5 py-3.5
+                         rounded-2xl border-2 border-slate-200 bg-white text-slate-700
+                         font-semibold text-sm transition-all hover:border-blue-300
+                         hover:shadow-md hover:shadow-blue-100 disabled:opacity-60
+                         focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
+                         active:scale-95"
+              aria-label={t("auth.signIn")}
+            >
+              {loading ? (
+                <Plane size={18} className="animate-plane-fly text-blue-600 -rotate-45"/>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+              )}
+              <span>{loading ? "Signing in…" : "Continue with Google"}</span>
+            </button>
+
+            {/* Divider */}
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-100"/>
+              </div>
+              <div className="relative flex justify-center">
+                <span className="px-3 bg-white text-xs text-slate-400 font-medium">Free forever</span>
+              </div>
+            </div>
+
+            {/* Trust badges */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { icon: Shield, label: "Secure data", color: "#2563eb", bg: "#eff6ff" },
+                { icon: FileText, label: "Private", color: "#8b5cf6", bg: "#f5f3ff" },
+                { icon: Wallet, label: "No card needed", color: "#f59e0b", bg: "#fffbeb" },
+              ].map(({ icon: Icon, label, color, bg }) => (
+                <div key={label} className="flex flex-col items-center gap-1.5 text-center">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+                       style={{ backgroundColor: bg }}>
+                    <Icon size={15} style={{ color }} aria-hidden="true"/>
+                  </div>
+                  <span className="text-[11px] text-slate-500 font-medium leading-tight">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer className="text-center py-4 text-xs text-slate-400">
+        © {new Date().getFullYear()} Travera. All rights reserved.
+      </footer>
     </div>
   );
 }

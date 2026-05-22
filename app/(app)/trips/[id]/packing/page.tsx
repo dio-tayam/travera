@@ -28,10 +28,6 @@ export default async function PackingPage({
     .single();
   if (!membership) notFound();
 
-  const { data: members } = await supabase
-    .from("trip_members")
-    .select("*, profiles(*)")
-    .eq("trip_id", id);
 
   const { data: items } = await supabase
     .from("packing_items")
@@ -42,9 +38,7 @@ export default async function PackingPage({
   return (
     <PackingClient
       trip={trip}
-      members={members ?? []}
       initialItems={items ?? []}
-      userId={user.id}
       canEdit={membership.role === "owner" || membership.role === "editor"}
     />
   );

@@ -3,183 +3,186 @@
 import { useTranslation } from "react-i18next";
 import "@/lib/i18n";
 import { formatDateRange, formatCurrency } from "@/lib/utils";
-import { Calendar, MapPin, Users, Wallet, Share2, Globe } from "lucide-react";
+import { Calendar, MapPin, Users, Wallet, Share2, Lock, Unlock,
+         Map, Package, FileText, ChevronRight, Plane } from "lucide-react";
 import Link from "next/link";
 import type { Database } from "@/types/database";
 import { createClient } from "@/lib/supabase/client";
 import { useState } from "react";
 import { toast } from "sonner";
 
-type Trip = Database["public"]["Tables"]["trips"]["Row"];
+type Trip       = Database["public"]["Tables"]["trips"]["Row"];
 type Membership = { role: "owner" | "editor" | "viewer" };
-type Member = {
-  user_id: string;
-  role: string;
+type Member     = {
+  user_id: string; role: string;
   profiles: Database["public"]["Tables"]["profiles"]["Row"] | null;
 };
 
-interface Props {
-  trip: Trip;
-  membership: Membership;
-  members: Member[];
-}
+interface Props { trip: Trip; membership: Membership; members: Member[] }
+
+const NAV_CARDS = [
+  { href: "itinerary", label: "Itinerary",  icon: Map,     color: "#6366f1", bg: "#eef2ff", grad: "itinerary-gradient" },
+  { href: "budget",    label: "Budget",     icon: Wallet,  color: "#f59e0b", bg: "#fffbeb", grad: "budget-gradient"    },
+  { href: "packing",   label: "Packing",    icon: Package, color: "#10b981", bg: "#ecfdf5", grad: "packing-gradient"   },
+  { href: "documents", label: "Documents",  icon: FileText,color: "#8b5cf6", bg: "#f5f3ff", grad: "docs-gradient"      },
+] as const;
 
 export function TripDetailClient({ trip, membership, members }: Props) {
   const { t } = useTranslation("common");
   const supabase = createClient();
-  const [sharing, setSharing] = useState(false);
+  const [isPublic, setIsPublic] = useState(trip.is_public);
+  const [sharing, setSharing]   = useState(false);
 
-  const navCards = [
-    { href: "itinerary", label: t("nav.itinerary"), icon: MapPin, color: "var(--color-primary)" },
-    { href: "budget", label: t("nav.budget"), icon: Wallet, color: "var(--color-accent)" },
-    { href: "packing", label: t("nav.packing"), icon: Users, color: "#16a34a" },
-    { href: "documents", label: t("nav.docs"), icon: Globe, color: "#7c3aed" },
-  ];
-
-  async function handleShare() {
+  async function copyShareLink() {
     const url = `${window.location.origin}/share/${trip.share_token}`;
     await navigator.clipboard.writeText(url);
-    toast.success("Share link copied to clipboard!");
+    toast.success("Share link copied!");
   }
 
   async function togglePublic() {
     setSharing(true);
-    try {
-      await supabase
-        .from("trips")
-        .update({ is_public: !trip.is_public })
-        .eq("id", trip.id);
-      toast.success(trip.is_public ? "Trip set to private" : "Trip is now public!");
-    } catch {
-      toast.error("Failed to update sharing settings");
-    } finally {
-      setSharing(false);
+    const { error } = await supabase.from("trips")
+      .update({ is_public: !isPublic }).eq("id", trip.id);
+    if (!error) {
+      setIsPublic(p => !p);
+      toast.success(!isPublic ? "Trip is now public" : "Trip set to private");
+    } else {
+      toast.error("Failed to update");
     }
+    setSharing(false);
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: "var(--color-background)" }}>
+    <div className="min-h-screen animate-fade-in" style={{ background: "var(--color-background)" }}>
+
       {/* Cover */}
-      <div className="relative h-52 lg:h-64 overflow-hidden">
-        {trip.cover_image_url ? (
-          <img
-            src={trip.cover_image_url}
-            alt={trip.title}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full" style={{ backgroundColor: "var(--color-primary)" }} />
-        )}
-        <div
-          className="absolute inset-0"
-          style={{ background: "linear-gradient(to top, rgba(0,0,0,0.6), transparent)" }}
-        />
-        <div className="absolute bottom-0 left-0 right-0 p-4 lg:p-6">
-          <h1
-            className="text-2xl lg:text-3xl font-bold text-white"
-            style={{ fontFamily: "var(--font-heading)" }}
-          >
-            {trip.title}
-          </h1>
-          {trip.destination && (
-            <p className="text-white/80 text-sm flex items-center gap-1 mt-1" style={{ fontFamily: "var(--font-body)" }}>
-              <MapPin size={13} aria-hidden="true" />
-              {trip.destination}
-            </p>
-          )}
+      <div className="relative h-52 lg:h-60 overflow-hidden">
+        {trip.cover_image_url
+          ? <img src={trip.cover_image_url} alt={trip.title}
+                 className="w-full h-full object-cover"/>
+          : <div className="w-full h-full sky-gradient flex items-center justify-center">
+              <Plane size={72} className="text-white/15 -rotate-45" aria-hidden="true"/>
+            </div>}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/15 to-transparent"/>
+        <div className="absolute bottom-0 left-0 right-0 p-5 lg:p-7">
+          <h1 className="text-2xl lg:text-3xl font-bold text-white mb-1.5"
+              style={{ fontFamily: "var(--font-heading)" }}>{trip.title}</h1>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-white/80">
+            {trip.destination && (
+              <span className="flex items-center gap-1.5">
+                <MapPin size={13}/> {trip.destination}
+              </span>
+            )}
+            {trip.start_date && trip.end_date && (
+              <span className="flex items-center gap-1.5">
+                <Calendar size={13}/> {formatDateRange(trip.start_date, trip.end_date)}
+              </span>
+            )}
+            <span className="flex items-center gap-1.5">
+              <Users size={13}/> {members.length} {members.length === 1 ? "traveler" : "travelers"}
+            </span>
+          </div>
         </div>
       </div>
 
-      <div className="px-4 lg:px-6 py-6 space-y-6 max-w-2xl">
-        {/* Quick stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-          {trip.start_date && trip.end_date && (
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center gap-2 mb-1">
-                <Calendar size={14} style={{ color: "var(--color-primary)" }} />
-                <span className="text-xs text-gray-500" style={{ fontFamily: "var(--font-body)" }}>Dates</span>
-              </div>
-              <p className="text-sm font-semibold" style={{ fontFamily: "var(--font-body)" }}>
-                {formatDateRange(trip.start_date, trip.end_date)}
-              </p>
+      <div className="max-w-xl mx-auto px-4 py-5 space-y-4">
+
+        {/* Budget stat */}
+        {trip.total_budget && (
+          <div className="card p-4 flex items-center gap-3 rounded-2xl">
+            <div className="w-11 h-11 rounded-xl budget-gradient flex items-center justify-center shrink-0">
+              <Wallet size={18} className="text-white"/>
             </div>
-          )}
-          {trip.total_budget && (
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-center gap-2 mb-1">
-                <Wallet size={14} style={{ color: "var(--color-accent)" }} />
-                <span className="text-xs text-gray-500" style={{ fontFamily: "var(--font-body)" }}>Budget</span>
-              </div>
-              <p className="text-sm font-semibold" style={{ fontFamily: "var(--font-body)" }}>
+            <div>
+              <p className="text-xs text-slate-400 font-medium">Total budget</p>
+              <p className="text-xl font-bold text-slate-900"
+                 style={{ fontFamily: "var(--font-heading)" }}>
                 {formatCurrency(trip.total_budget, trip.currency)}
               </p>
             </div>
-          )}
-          <div className="bg-white rounded-xl p-4 shadow-sm">
-            <div className="flex items-center gap-2 mb-1">
-              <Users size={14} style={{ color: "#16a34a" }} />
-              <span className="text-xs text-gray-500" style={{ fontFamily: "var(--font-body)" }}>Members</span>
-            </div>
-            <p className="text-sm font-semibold" style={{ fontFamily: "var(--font-body)" }}>
-              {members.length} {members.length === 1 ? "member" : "members"}
-            </p>
           </div>
-        </div>
+        )}
 
-        {/* Navigation cards */}
+        {/* Nav cards grid */}
         <div className="grid grid-cols-2 gap-3">
-          {navCards.map(({ href, label, icon: Icon, color }) => (
-            <Link
-              key={href}
-              href={`/trips/${trip.id}/${href}`}
-              className="bg-white rounded-xl p-5 shadow-sm flex flex-col gap-3 hover:shadow-md transition-shadow group"
-            >
-              <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center"
-                style={{ backgroundColor: `${color}15` }}
-              >
-                <Icon size={20} style={{ color }} aria-hidden="true" />
+          {NAV_CARDS.map(({ href, label, icon: Icon, color, bg }) => (
+            <Link key={href} href={`/trips/${trip.id}/${href}`}
+                  className="card card-hover flex items-center gap-3 p-4 group rounded-2xl">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0
+                              transition-transform duration-200 group-hover:scale-110"
+                   style={{ backgroundColor: bg }}>
+                <Icon size={19} style={{ color }} aria-hidden="true"/>
               </div>
-              <span
-                className="font-semibold text-sm"
-                style={{ color: "var(--color-foreground)", fontFamily: "var(--font-heading)" }}
-              >
-                {label}
-              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-slate-900 text-sm"
+                   style={{ fontFamily: "var(--font-heading)" }}>{label}</p>
+              </div>
+              <ChevronRight size={14} className="text-slate-300 group-hover:text-blue-400
+                                                 transition-colors shrink-0"/>
             </Link>
           ))}
         </div>
 
-        {/* Share section (owner only) */}
+        {/* Share (owner only) */}
         {membership.role === "owner" && (
-          <div className="bg-white rounded-xl p-4 shadow-sm">
-            <h3 className="font-semibold text-sm mb-3" style={{ fontFamily: "var(--font-heading)" }}>
-              Share Trip
+          <div className="card p-4 space-y-3 rounded-2xl">
+            <h3 className="font-bold text-sm text-slate-900"
+                style={{ fontFamily: "var(--font-heading)" }}>
+              Share this trip
             </h3>
             <div className="flex gap-2">
-              <button
-                onClick={handleShare}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-sm font-medium hover:bg-gray-50 transition-colors"
-                style={{ fontFamily: "var(--font-body)" }}
-              >
-                <Share2 size={15} aria-hidden="true" />
-                Copy Link
+              <button onClick={copyShareLink}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5
+                                 rounded-xl border border-slate-200 text-sm font-medium
+                                 text-slate-700 hover:bg-slate-50 hover:border-blue-200
+                                 transition-all active:scale-95">
+                <Share2 size={14}/> Copy link
               </button>
-              <button
-                onClick={togglePublic}
-                disabled={sharing}
-                className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors border"
-                style={
-                  trip.is_public
-                    ? { borderColor: "var(--color-primary)", color: "var(--color-primary)", fontFamily: "var(--font-body)" }
-                    : { borderColor: "var(--color-border)", color: "var(--color-muted-foreground)", fontFamily: "var(--font-body)" }
-                }
-              >
-                {trip.is_public ? "Public" : "Private"}
+              <button onClick={togglePublic} disabled={sharing}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5
+                                 rounded-xl border text-sm font-medium transition-all active:scale-95"
+                      style={isPublic
+                        ? { borderColor:"#2563eb", color:"#2563eb", background:"#eff6ff" }
+                        : { borderColor:"#e2e8f0", color:"#64748b" }}>
+                {isPublic ? <Unlock size={14}/> : <Lock size={14}/>}
+                {isPublic ? "Public" : "Private"}
               </button>
             </div>
+            {isPublic && (
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Anyone with the link can view this trip&apos;s itinerary (read-only).
+              </p>
+            )}
           </div>
         )}
+
+        {/* Members */}
+        <div className="card p-4 rounded-2xl">
+          <h3 className="font-bold text-sm text-slate-900 mb-3"
+              style={{ fontFamily: "var(--font-heading)" }}>Travelers</h3>
+          <div className="space-y-2.5">
+            {members.map(m => (
+              <div key={m.user_id} className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full sky-gradient flex items-center justify-center
+                                text-white text-xs font-bold shrink-0">
+                  {(m.profiles?.display_name ?? "?")[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">
+                    {m.profiles?.display_name ?? "Member"}
+                  </p>
+                </div>
+                <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold capitalize"
+                      style={{
+                        background: m.role==="owner" ? "#eff6ff" : "#f8fafc",
+                        color:      m.role==="owner" ? "#2563eb" : "#64748b",
+                      }}>
+                  {m.role}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -20,7 +20,12 @@ export default async function AppLayout({
   return (
     <I18nProvider>
       {children}
-      <Toaster position="top-right" richColors />
+      <Toaster
+        position="bottom-right"
+        richColors
+        closeButton
+        toastOptions={{ duration: 3500 }}
+      />
     </I18nProvider>
   );
 }
