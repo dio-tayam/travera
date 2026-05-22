@@ -14,7 +14,19 @@
     "createTrip": "+ Neue Reise erstellen",
     "noTrips": "Noch keine Reisen. Plane dein erstes Abenteuer!",
     "mates": "{{count}} Mitreisende",
-    "loading": "Lädt..."
+    "loading": "Lädt...",
+    "newTrip": "Neue Reise",
+    "totalTrips": "Reisen gesamt",
+    "destinations": "Reiseziele",
+    "collaborative": "Gruppenreisen",
+    "avgDuration": "Ø Dauer",
+    "tripInsights": "Reise-Insights",
+    "upcoming": "bevorstehend",
+    "completed": "abgeschlossen",
+    "pastTrips": "Vergangene Reisen",
+    "avgDaysTrip": "Ø {{n}} Tage/Reise",
+    "destinationsCount_one": "{{count}} Reiseziel",
+    "destinationsCount_other": "{{count}} Reiseziele"
   },
   "auth": {
     "signIn": "Mit Google anmelden",
@@ -34,7 +46,15 @@
     "deleteTrip": "Reise löschen",
     "shareTrip": "Reise teilen",
     "members": "Mitglieder",
-    "overview": "Übersicht"
+    "overview": "Übersicht",
+    "travelers": "Reisende",
+    "copyLink": "Link kopieren",
+    "makePublic": "Öffentlich machen",
+    "makePrivate": "Privat machen",
+    "shareDesc_public": "Jeder mit dem Link kann das Itinerar sehen (nur lesen).",
+    "shareDesc_private": "Reise ist privat — nur Reisende können sie sehen.",
+    "perTraveler": "Pro Reisende",
+    "totalBudget": "Gesamtbudget"
   },
   "itinerary": {
     "day": "Tag {{number}}",
@@ -87,7 +107,16 @@
     "unpacked": "Nicht eingepackt",
     "category": "Kategorie",
     "assignTo": "Zuweisen an",
-    "deleteItem": "Artikel löschen"
+    "deleteItem": "Artikel löschen",
+    "totalLabel": "Gesamt",
+    "packedLabel": "Gepackt",
+    "leftLabel": "Verbleibend",
+    "itemName": "Artikelname…",
+    "suggest": "Vorschlagen",
+    "add": "Hinzufügen",
+    "emptyList": "Ihre Packliste ist leer.",
+    "generateBtn": "Vorschläge generieren",
+    "allPacked": "Alles gepackt! ✈️ Gute Reise!"
   },
   "documents": {
     "title": "Dokumente",
@@ -96,6 +125,10 @@
     "maxSize": "Max. 10MB",
     "view": "Anzeigen",
     "delete": "Löschen",
+    "docType": "Dokumenttyp",
+    "uploading": "Wird hochgeladen…",
+    "noDocuments": "Keine Dokumente.",
+    "uploadPrompt": " Lade deine erste Datei oben hoch.",
     "types": {
       "flight": "Flug",
       "hotel": "Hotel",

@@ -7,7 +7,13 @@ import { SUPPORTED_LANGUAGES } from "@/lib/i18n";
 import { Globe, Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function LanguageSwitcher({ className }: { className?: string }) {
+interface Props {
+  className?: string;
+  /** Open dropdown upward (true) or downward (false, default) */
+  dropUp?: boolean;
+}
+
+export function LanguageSwitcher({ className, dropUp = false }: Props) {
   const { i18n } = useTranslation("common");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -16,11 +22,15 @@ export function LanguageSwitcher({ className }: { className?: string }) {
     ?? SUPPORTED_LANGUAGES[0];
 
   useEffect(() => {
-    function onDown(e: MouseEvent) {
+    function onDown(e: MouseEvent | TouchEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
   }, []);
 
   return (
@@ -28,7 +38,7 @@ export function LanguageSwitcher({ className }: { className?: string }) {
       <button
         onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2 w-full px-2.5 py-2 rounded-xl text-[13px] font-medium
-                   text-slate-600 hover:bg-slate-50 transition-colors"
+                   text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-colors"
         aria-label="Change language" aria-expanded={open}
         style={{ fontFamily: "var(--font-body)" }}
       >
@@ -39,9 +49,13 @@ export function LanguageSwitcher({ className }: { className?: string }) {
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 bg-white rounded-2xl
-                        shadow-xl border border-slate-100 py-1.5 z-50 animate-fade-in
-                        max-h-64 overflow-y-auto">
+        <div className={cn(
+          "absolute bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-50",
+          "animate-fade-in max-h-64 overflow-y-auto min-w-[180px]",
+          dropUp
+            ? "bottom-full left-0 right-0 mb-1"
+            : "top-full right-0 mt-1"
+        )}>
           {SUPPORTED_LANGUAGES.map(lang => {
             const active = i18n.language === lang.code;
             return (
@@ -49,9 +63,9 @@ export function LanguageSwitcher({ className }: { className?: string }) {
                 key={lang.code}
                 onClick={() => { i18n.changeLanguage(lang.code); setOpen(false); }}
                 className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm text-left transition-colors",
+                  "w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors",
                   active ? "bg-blue-50 text-blue-700 font-semibold"
-                         : "text-slate-700 hover:bg-slate-50"
+                         : "text-slate-700 hover:bg-slate-50 active:bg-slate-100"
                 )}
                 style={{ fontFamily: "var(--font-body)" }}
               >

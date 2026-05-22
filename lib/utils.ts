@@ -37,12 +37,12 @@ export function generateShareToken(): string {
 
 export function getStopTypeColor(type: string): string {
   const map: Record<string, string> = {
-    hotel: "#0038a8",
-    activity: "#fcd116",
-    restaurant: "#ce1126",
-    transit: "#9ca3af",
-    flight: "#7dd3fc",
-    free: "#86efac",
+    hotel:      "#2563eb",  // primary blue
+    activity:   "#f59e0b",  // budget amber
+    restaurant: "#e11d48",  // refined rose
+    transit:    "#64748b",  // slate-500
+    flight:     "#0ea5e9",  // sky/info
+    free:       "#10b981",  // packing emerald
   };
-  return map[type] ?? "#9ca3af";
+  return map[type] ?? "#64748b";
 }

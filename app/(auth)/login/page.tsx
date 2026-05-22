@@ -9,42 +9,12 @@ import "@/lib/i18n";
 export const dynamic = "force-dynamic";
 
 const FEATURES = [
-  {
-    icon: Map,
-    title: "Interactive Itinerary",
-    desc: "Plan every day with Google Maps, drag-and-drop stops and route lines.",
-    color: "#6366f1", bg: "#eef2ff",
-  },
-  {
-    icon: Users,
-    title: "Real-time Collaboration",
-    desc: "Invite friends and edit together live — no refresh needed.",
-    color: "#2563eb", bg: "#eff6ff",
-  },
-  {
-    icon: Wallet,
-    title: "Expense Splitting",
-    desc: "Track shared costs and auto-calculate who owes who.",
-    color: "#f59e0b", bg: "#fffbeb",
-  },
-  {
-    icon: Package,
-    title: "Smart Packing Lists",
-    desc: "AI-generated suggestions based on your destination and trip length.",
-    color: "#10b981", bg: "#ecfdf5",
-  },
-  {
-    icon: FileText,
-    title: "Document Storage",
-    desc: "Upload passports, visas and flight tickets — access anywhere.",
-    color: "#8b5cf6", bg: "#f5f3ff",
-  },
-  {
-    icon: Globe,
-    title: "10 Languages",
-    desc: "Fully translated in English, Japanese, Korean, German and more.",
-    color: "#0ea5e9", bg: "#f0f9ff",
-  },
+  { icon: Map,      title: "Interactive Itinerary",    desc: "Plan every day with Google Maps, drag-and-drop stops and route lines.", color: "#6366f1", bg: "#eef2ff" },
+  { icon: Users,    title: "Real-time Collaboration",  desc: "Invite friends and edit together live — no refresh needed.",            color: "#2563eb", bg: "#eff6ff" },
+  { icon: Wallet,   title: "Expense Splitting",        desc: "Track shared costs and auto-calculate who owes who.",                   color: "#f59e0b", bg: "#fffbeb" },
+  { icon: Package,  title: "Smart Packing Lists",      desc: "AI-generated suggestions based on your destination and trip length.",   color: "#10b981", bg: "#ecfdf5" },
+  { icon: FileText, title: "Document Storage",         desc: "Upload passports, visas and flight tickets — access anywhere.",        color: "#8b5cf6", bg: "#f5f3ff" },
+  { icon: Globe,    title: "10 Languages",             desc: "Fully translated in English, Japanese, Korean, German and more.",      color: "#0ea5e9", bg: "#f0f9ff" },
 ];
 
 export default function LoginPage() {
@@ -68,37 +38,37 @@ export default function LoginPage() {
     <div className="min-h-dvh bg-slate-50 flex flex-col">
 
       <main className="flex-1 flex flex-col lg:flex-row items-center justify-center
-                       px-6 py-12 lg:px-16 lg:py-0 gap-14 max-w-6xl mx-auto w-full">
+                       px-5 py-8 lg:px-16 lg:py-0 gap-8 lg:gap-14 max-w-6xl mx-auto w-full">
 
         {/* ── Left: Branding + features ──────────────────────────────── */}
-        <div className="flex-1 flex flex-col gap-8 lg:py-16">
+        <div className="flex-1 flex flex-col gap-5 lg:gap-8 lg:py-16 w-full">
 
           {/* Logo */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl sky-gradient flex items-center justify-center
-                            shadow-md shadow-blue-200">
-              <Plane size={18} className="text-white -rotate-45"/>
+            <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-xl sky-gradient flex items-center
+                            justify-center shadow-md shadow-blue-200 shrink-0">
+              <Plane size={16} className="text-white -rotate-45"/>
             </div>
-            <span className="text-2xl font-extrabold text-blue-600"
+            <span className="text-xl lg:text-2xl font-extrabold text-blue-600"
                   style={{ fontFamily: "var(--font-heading)" }}>
               Travera
             </span>
           </div>
 
           {/* Headline */}
-          <div className="space-y-3">
-            <h1 className="text-4xl lg:text-5xl font-extrabold text-slate-900 leading-tight"
+          <div className="space-y-2 lg:space-y-3">
+            <h1 className="text-2xl sm:text-3xl lg:text-5xl font-extrabold text-slate-900 leading-tight"
                 style={{ fontFamily: "var(--font-heading)" }}>
               The smarter way to<br/>
               <span className="text-blue-600">plan your travels</span>
             </h1>
-            <p className="text-slate-500 text-lg leading-relaxed">
+            <p className="text-slate-500 text-sm lg:text-lg leading-relaxed">
               From idea to adventure — plan it, share it, live it.
             </p>
           </div>
 
-          {/* Feature grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Feature grid — hidden on mobile, visible on desktop */}
+          <div className="hidden lg:grid grid-cols-1 sm:grid-cols-2 gap-4">
             {FEATURES.map(({ icon: Icon, title, desc, color, bg }) => (
               <div key={title} className="flex items-start gap-3 group">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5
@@ -117,12 +87,12 @@ export default function LoginPage() {
         </div>
 
         {/* ── Right: Sign-in card ─────────────────────────────────────── */}
-        <div className="w-full lg:w-96 shrink-0">
+        <div className="w-full sm:max-w-sm lg:w-96 shrink-0">
           <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/80
-                          border border-slate-100 p-8 space-y-6 animate-scale-in">
+                          border border-slate-100 p-6 sm:p-8 space-y-5 sm:space-y-6 animate-scale-in">
 
-            <div className="space-y-1.5">
-              <h2 className="text-2xl font-bold text-slate-900"
+            <div className="space-y-1">
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900"
                   style={{ fontFamily: "var(--font-heading)" }}>
                 Welcome back
               </h2>
@@ -166,18 +136,18 @@ export default function LoginPage() {
             </div>
 
             {/* Trust badges */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               {[
-                { icon: Shield, label: "Secure data", color: "#2563eb", bg: "#eff6ff" },
-                { icon: FileText, label: "Private", color: "#8b5cf6", bg: "#f5f3ff" },
-                { icon: Wallet, label: "No card needed", color: "#f59e0b", bg: "#fffbeb" },
+                { icon: Shield,   label: "Secure data",    color: "#2563eb", bg: "#eff6ff" },
+                { icon: FileText, label: "Private",        color: "#8b5cf6", bg: "#f5f3ff" },
+                { icon: Wallet,   label: "No card needed", color: "#f59e0b", bg: "#fffbeb" },
               ].map(({ icon: Icon, label, color, bg }) => (
                 <div key={label} className="flex flex-col items-center gap-1.5 text-center">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center"
                        style={{ backgroundColor: bg }}>
-                    <Icon size={15} style={{ color }} aria-hidden="true"/>
+                    <Icon size={14} style={{ color }} aria-hidden="true"/>
                   </div>
-                  <span className="text-[11px] text-slate-500 font-medium leading-tight">{label}</span>
+                  <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium leading-tight">{label}</span>
                 </div>
               ))}
             </div>

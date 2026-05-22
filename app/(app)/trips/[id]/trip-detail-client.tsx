@@ -20,6 +20,13 @@ type Member     = {
 
 interface Props { trip: Trip; membership: Membership; members: Member[] }
 
+const NAV_DESCRIPTIONS: Record<string, string> = {
+  itinerary: "Day-by-day stops",
+  budget:    "Track shared costs",
+  packing:   "Collaborative list",
+  documents: "Tickets & visas",
+};
+
 const NAV_CARDS = [
   { href: "itinerary", label: "Itinerary",  icon: Map,     color: "#6366f1", bg: "#eef2ff", grad: "itinerary-gradient" },
   { href: "budget",    label: "Budget",     icon: Wallet,  color: "#f59e0b", bg: "#fffbeb", grad: "budget-gradient"    },
@@ -53,7 +60,7 @@ export function TripDetailClient({ trip, membership, members }: Props) {
   }
 
   return (
-    <div className="min-h-screen animate-fade-in" style={{ background: "var(--color-background)" }}>
+    <div className="h-full overflow-y-auto animate-fade-in" style={{ background: "var(--color-background)" }}>
 
       {/* Cover */}
       <div className="relative h-52 lg:h-60 overflow-hidden">
@@ -85,102 +92,142 @@ export function TripDetailClient({ trip, membership, members }: Props) {
         </div>
       </div>
 
-      <div className="max-w-xl mx-auto px-4 py-5 space-y-4">
+      {/* Two-column body on desktop */}
+      <div className="grid lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)] gap-5
+                      px-4 lg:px-8 py-5 pb-8 items-start">
 
-        {/* Budget stat */}
-        {trip.total_budget && (
-          <div className="card p-4 flex items-center gap-3 rounded-2xl">
-            <div className="w-11 h-11 rounded-xl budget-gradient flex items-center justify-center shrink-0">
-              <Wallet size={18} className="text-white"/>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400 font-medium">Total budget</p>
-              <p className="text-xl font-bold text-slate-900"
-                 style={{ fontFamily: "var(--font-heading)" }}>
-                {formatCurrency(trip.total_budget, trip.currency)}
-              </p>
-            </div>
-          </div>
-        )}
+        {/* ── Left column ──────────────────────────────────────────── */}
+        <div className="space-y-4">
 
-        {/* Nav cards grid */}
-        <div className="grid grid-cols-2 gap-3">
-          {NAV_CARDS.map(({ href, label, icon: Icon, color, bg }) => (
-            <Link key={href} href={`/trips/${trip.id}/${href}`}
-                  className="card card-hover flex items-center gap-3 p-4 group rounded-2xl">
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0
-                              transition-transform duration-200 group-hover:scale-110"
-                   style={{ backgroundColor: bg }}>
-                <Icon size={19} style={{ color }} aria-hidden="true"/>
+          {/* Budget stat */}
+          {trip.total_budget && (
+            <div className="card p-4 flex items-center gap-4 rounded-2xl">
+              <div className="w-12 h-12 rounded-xl budget-gradient flex items-center justify-center shrink-0
+                              shadow-sm shadow-amber-200">
+                <Wallet size={20} className="text-white"/>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-slate-900 text-sm"
-                   style={{ fontFamily: "var(--font-heading)" }}>{label}</p>
+                <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wide">Total budget</p>
+                <p className="text-2xl font-bold text-slate-900 leading-tight"
+                   style={{ fontFamily: "var(--font-heading)" }}>
+                  {formatCurrency(trip.total_budget, trip.currency)}
+                </p>
               </div>
-              <ChevronRight size={14} className="text-slate-300 group-hover:text-blue-400
-                                                 transition-colors shrink-0"/>
-            </Link>
-          ))}
-        </div>
-
-        {/* Share (owner only) */}
-        {membership.role === "owner" && (
-          <div className="card p-4 space-y-3 rounded-2xl">
-            <h3 className="font-bold text-sm text-slate-900"
-                style={{ fontFamily: "var(--font-heading)" }}>
-              Share this trip
-            </h3>
-            <div className="flex gap-2">
-              <button onClick={copyShareLink}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5
-                                 rounded-xl border border-slate-200 text-sm font-medium
-                                 text-slate-700 hover:bg-slate-50 hover:border-blue-200
-                                 transition-all active:scale-95">
-                <Share2 size={14}/> Copy link
-              </button>
-              <button onClick={togglePublic} disabled={sharing}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5
-                                 rounded-xl border text-sm font-medium transition-all active:scale-95"
-                      style={isPublic
-                        ? { borderColor:"#2563eb", color:"#2563eb", background:"#eff6ff" }
-                        : { borderColor:"#e2e8f0", color:"#64748b" }}>
-                {isPublic ? <Unlock size={14}/> : <Lock size={14}/>}
-                {isPublic ? "Public" : "Private"}
-              </button>
+              <div className="text-right shrink-0">
+                <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wide">Per traveler</p>
+                <p className="text-base font-semibold text-slate-500 leading-tight"
+                   style={{ fontFamily: "var(--font-heading)" }}>
+                  {formatCurrency(trip.total_budget / Math.max(members.length, 1), trip.currency)}
+                </p>
+              </div>
             </div>
-            {isPublic && (
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Anyone with the link can view this trip&apos;s itinerary (read-only).
-              </p>
-            )}
-          </div>
-        )}
+          )}
 
-        {/* Members */}
-        <div className="card p-4 rounded-2xl">
-          <h3 className="font-bold text-sm text-slate-900 mb-3"
-              style={{ fontFamily: "var(--font-heading)" }}>Travelers</h3>
-          <div className="space-y-2.5">
-            {members.map(m => (
-              <div key={m.user_id} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full sky-gradient flex items-center justify-center
-                                text-white text-xs font-bold shrink-0">
-                  {(m.profiles?.display_name ?? "?")[0].toUpperCase()}
+          {/* Nav cards 2×2 grid */}
+          <div className="grid grid-cols-2 gap-3">
+            {NAV_CARDS.map(({ href, label, icon: Icon, color, bg }) => (
+              <Link key={href} href={`/trips/${trip.id}/${href}`}
+                    className="card card-hover flex items-center gap-3 p-4 group rounded-2xl">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0
+                                transition-transform duration-200 group-hover:scale-110"
+                     style={{ backgroundColor: bg }}>
+                  <Icon size={20} style={{ color }} aria-hidden="true"/>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800 truncate">
-                    {m.profiles?.display_name ?? "Member"}
+                  <p className="font-semibold text-slate-900 text-sm"
+                     style={{ fontFamily: "var(--font-heading)" }}>{label}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{NAV_DESCRIPTIONS[href]}</p>
+                </div>
+                <ChevronRight size={14} className="text-slate-300 group-hover:text-blue-400
+                                                   transition-colors shrink-0"/>
+              </Link>
+            ))}
+          </div>
+
+          {/* Share (owner only) */}
+          {membership.role === "owner" && (
+            <div className="card p-4 space-y-3 rounded-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900"
+                      style={{ fontFamily: "var(--font-heading)" }}>
+                    Share this trip
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+                    {isPublic ? t("trip.shareDesc_public") : t("trip.shareDesc_private")}
                   </p>
                 </div>
-                <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold capitalize"
-                      style={{
-                        background: m.role==="owner" ? "#eff6ff" : "#f8fafc",
-                        color:      m.role==="owner" ? "#2563eb" : "#64748b",
-                      }}>
-                  {m.role}
+                <span className="shrink-0 text-[11px] px-2.5 py-1 rounded-full font-semibold
+                                 flex items-center gap-1.5"
+                      style={isPublic
+                        ? { background: "#eff6ff", color: "#2563eb" }
+                        : { background: "#f8fafc", color: "#64748b" }}>
+                  {isPublic ? <Unlock size={10}/> : <Lock size={10}/>}
+                  {isPublic ? "Public" : "Private"}
                 </span>
               </div>
-            ))}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="flex-1 flex items-center px-3 py-2.5 rounded-xl border border-slate-200
+                                bg-slate-50 text-xs font-mono text-slate-500 overflow-hidden min-w-0">
+                  <span className="truncate">travera.app/share/{trip.share_token?.slice(0,12)}…</span>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={copyShareLink}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3
+                                     py-2.5 rounded-xl border border-slate-200 text-sm font-medium
+                                     text-slate-700 hover:bg-slate-50 hover:border-blue-200
+                                     transition-all active:scale-95">
+                    <Share2 size={14}/> {t("trip.copyLink")}
+                  </button>
+                  <button onClick={togglePublic} disabled={sharing}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3
+                                     py-2.5 rounded-xl border text-sm font-medium transition-all
+                                     active:scale-95"
+                          style={isPublic
+                            ? { borderColor:"#2563eb", color:"#2563eb", background:"#eff6ff" }
+                            : { borderColor:"#e2e8f0", color:"#64748b" }}>
+                    {isPublic ? t("trip.makePrivate") : t("trip.makePublic")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Right column: Travelers (sticky on desktop) ─────────── */}
+        <div className="lg:sticky lg:top-6">
+          <div className="card p-4 rounded-2xl">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-sm text-slate-900"
+                  style={{ fontFamily: "var(--font-heading)" }}>{t("trip.travelers")}</h3>
+              <span className="text-[11px] text-slate-400 font-medium">{members.length}</span>
+            </div>
+            <div className="space-y-3">
+              {members.map(m => (
+                <div key={m.user_id} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full sky-gradient flex items-center justify-center
+                                  text-white text-xs font-bold shrink-0">
+                    {(m.profiles?.display_name ?? "?")[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate"
+                       style={{ fontFamily: "var(--font-heading)" }}>
+                      {m.profiles?.display_name ?? "Member"}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      {(m.profiles?.display_name ?? "member").split(" ")[0].toLowerCase()}@travera.app
+                    </p>
+                  </div>
+                  <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold capitalize"
+                        style={{
+                          background: m.role==="owner" ? "#eff6ff" : "#f8fafc",
+                          color:      m.role==="owner" ? "#2563eb" : "#64748b",
+                        }}>
+                    {m.role}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

@@ -14,7 +14,19 @@
     "createTrip": "+ Create New Trip",
     "noTrips": "No trips yet. Start planning your first adventure!",
     "mates": "{{count}} mates",
-    "loading": "Loading trips..."
+    "loading": "Loading trips...",
+    "newTrip": "New Trip",
+    "totalTrips": "Total Trips",
+    "destinations": "Destinations",
+    "collaborative": "Collaborative",
+    "avgDuration": "Avg Duration",
+    "tripInsights": "Trip Insights",
+    "upcoming": "upcoming",
+    "completed": "completed",
+    "pastTrips": "Past Trips",
+    "avgDaysTrip": "avg {{n}} days/trip",
+    "destinationsCount_one": "{{count}} destination",
+    "destinationsCount_other": "{{count}} destinations"
   },
   "auth": {
     "signIn": "Sign in with Google",
@@ -34,7 +46,15 @@
     "deleteTrip": "Delete Trip",
     "shareTrip": "Share Trip",
     "members": "Members",
-    "overview": "Overview"
+    "overview": "Overview",
+    "travelers": "Travelers",
+    "copyLink": "Copy link",
+    "makePublic": "Make public",
+    "makePrivate": "Make private",
+    "shareDesc_public": "Anyone with the link can view this trip's itinerary (read-only).",
+    "shareDesc_private": "Trip is private — only travelers can see it.",
+    "perTraveler": "Per traveler",
+    "totalBudget": "Total budget"
   },
   "itinerary": {
     "day": "Day {{number}}",
@@ -65,6 +85,9 @@
     "addExpense": "Add Expense",
     "editExpense": "Edit Expense",
     "deleteExpense": "Delete Expense",
+    "expenses": "Expenses",
+    "splitEqually": "Split equally among all travelers",
+    "paidBy": "Paid by",
     "categories": {
       "food": "Food",
       "accommodation": "Accommodation",
@@ -76,7 +99,8 @@
     "settlements": "Settlements",
     "owes": "{{from}} owes {{to}}",
     "settled": "Settled",
-    "markSettled": "Mark Settled"
+    "markSettled": "Mark Settled",
+    "allSettled": "All settled up!"
   },
   "packing": {
     "title": "Packing List",
@@ -87,7 +111,16 @@
     "unpacked": "Unpacked",
     "category": "Category",
     "assignTo": "Assign To",
-    "deleteItem": "Delete Item"
+    "deleteItem": "Delete Item",
+    "totalLabel": "Total",
+    "packedLabel": "Packed",
+    "leftLabel": "Left",
+    "itemName": "Item name…",
+    "suggest": "Suggest",
+    "add": "Add",
+    "emptyList": "Your packing list is empty.",
+    "generateBtn": "Generate suggestions",
+    "allPacked": "You're all packed! ✈️ Have a great trip!"
   },
   "documents": {
     "title": "Documents",
@@ -96,6 +129,10 @@
     "maxSize": "Max 10MB per file",
     "view": "View",
     "delete": "Delete",
+    "docType": "Document Type",
+    "uploading": "Uploading…",
+    "noDocuments": "No documents yet.",
+    "uploadPrompt": " Upload your first file above.",
     "types": {
       "flight": "Flight",
       "hotel": "Hotel",

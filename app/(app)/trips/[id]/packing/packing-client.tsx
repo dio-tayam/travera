@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/types/database";
-import { Plus, X, Check, Loader2, ChevronDown, ChevronRight, Plane } from "lucide-react";
+import { Plus, X, Check, Loader2, ChevronDown, ChevronRight, Plane, Package } from "lucide-react";
 import { toast } from "sonner";
 
 type Trip        = Database["public"]["Tables"]["trips"]["Row"];
@@ -23,12 +23,11 @@ interface Props {
 export function PackingClient({ trip, initialItems, canEdit }: Omit<Props, "members" | "userId">) {
   const { t } = useTranslation("common");
   const supabase = createClient();
-  const [items, setItems]           = useState(initialItems);
-  const [generating, setGen]        = useState(false);
-  const [newLabel, setNewLabel]     = useState("");
-  const [newCat, setNewCat]         = useState("Essentials");
-  const [showAdd, setShowAdd]       = useState(false);
-  const [collapsed, setCollapsed]   = useState<Record<string,boolean>>({});
+  const [items, setItems]         = useState(initialItems);
+  const [generating, setGen]      = useState(false);
+  const [newLabel, setNewLabel]   = useState("");
+  const [newCat, setNewCat]       = useState("Essentials");
+  const [collapsed, setCollapsed] = useState<Record<string,boolean>>({});
 
   useEffect(() => {
     const ch = supabase.channel(`packing:${trip.id}`)
@@ -40,7 +39,7 @@ export function PackingClient({ trip, initialItems, canEdit }: Omit<Props, "memb
     return () => { supabase.removeChannel(ch); };
   }, [trip.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const grouped = items.reduce<Record<string,PackingItem[]>>((acc,item) => {
+  const grouped = items.reduce<Record<string,PackingItem[]>>((acc, item) => {
     const c = item.category ?? "Other";
     if (!acc[c]) acc[c] = [];
     acc[c].push(item);
@@ -101,7 +100,7 @@ export function PackingClient({ trip, initialItems, canEdit }: Omit<Props, "memb
     if (newOnes.length === 0) { toast.info("Nothing new to add!"); setGen(false); return; }
 
     const { data } = await supabase.from("packing_items").insert(
-      newOnes.map((s,i) => ({
+      newOnes.map((s, i) => ({
         trip_id: trip.id, label: s.label, category: s.category,
         is_packed: false, order_index: items.length + i, assigned_to: null,
       }))
@@ -112,168 +111,201 @@ export function PackingClient({ trip, initialItems, canEdit }: Omit<Props, "memb
   }
 
   return (
-    <div className="min-h-screen pb-8 animate-fade-in" style={{ background:"var(--color-background)" }}>
+    <div className="h-full overflow-y-auto animate-fade-in" style={{ background:"var(--color-background)" }}>
 
       {/* Header */}
       <div className="px-4 lg:px-8 pt-6 pb-4">
-        <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold text-slate-900" style={{ fontFamily:"var(--font-heading)" }}>
               {t("packing.title")}
             </h1>
             <p className="text-sm text-slate-400 mt-0.5">{trip.title}</p>
           </div>
+          {/* Mobile-only suggest button */}
           {canEdit && (
-            <div className="flex gap-2 shrink-0">
-              <button onClick={generate} disabled={generating}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold
-                                 disabled:opacity-60 hover:opacity-90 transition-all border border-amber-200
-                                 bg-amber-50 text-amber-700 active:scale-95"
-                      aria-label={t("packing.generateSuggestions")}>
-                {generating
-                  ? <Loader2 size={14} className="animate-spin"/>
-                  : <span className="text-sm">✨</span>}
-                {generating ? t("packing.generating") : "Suggest"}
-              </button>
-              <button onClick={() => setShowAdd(s => !s)}
-                      className="flex items-center gap-1 px-3 py-2 rounded-xl text-sm font-semibold
-                                 text-white packing-gradient hover:opacity-90 transition-all active:scale-95"
-                      aria-label={t("packing.addItem")}>
-                <Plus size={16}/>
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Progress card */}
-        <div className="card p-4 rounded-2xl">
-          <div className="flex items-center justify-between mb-2.5">
-            <span className="text-sm font-medium text-slate-700">
-              {packed} / {total} items packed
-            </span>
-            <span className="text-sm font-bold"
-                  style={{ color: pct===100 ? "#10b981" : "var(--color-packing)" }}>
-              {pct}%
-            </span>
-          </div>
-          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full rounded-full transition-all duration-700"
-                 style={{
-                   width:`${pct}%`,
-                   background: pct===100 ? "#10b981" : "linear-gradient(90deg, #10b981, #34d399)"
-                 }}/>
-          </div>
-          {pct === 100 && total > 0 && (
-            <p className="text-xs text-emerald-600 font-semibold mt-2 text-center animate-bounce-in">
-              You&apos;re all packed! ✈️ Have a great trip!
-            </p>
+            <button onClick={generate} disabled={generating}
+                    className="lg:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm
+                               font-semibold disabled:opacity-60 border border-amber-200
+                               bg-amber-50 text-amber-700 active:scale-95 shrink-0">
+              {generating ? <Loader2 size={14} className="animate-spin"/> : <span>✨</span>}
+              {generating ? t("packing.generating") : "Suggest"}
+            </button>
           )}
         </div>
       </div>
 
-      {/* Add item inline */}
-      {showAdd && canEdit && (
-        <div className="px-4 lg:px-8 mb-4 animate-scale-in">
-          <div className="card p-4 rounded-2xl flex gap-2 items-end">
-            <div className="flex-1 space-y-2">
-              <input type="text" value={newLabel} placeholder="Item name…"
-                     onChange={e => setNewLabel(e.target.value)}
-                     onKeyDown={e => { if (e.key==="Enter"){ e.preventDefault(); addItem(); }}}
-                     className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm
-                                focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-shadow"
-                     autoFocus/>
-              <input type="text" value={newCat} placeholder="Category"
-                     onChange={e => setNewCat(e.target.value)}
-                     className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm
-                                focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-shadow"/>
-            </div>
-            <button onClick={addItem}
-                    className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white
-                               packing-gradient hover:opacity-90 transition-all shrink-0 active:scale-95">
-              Add
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Two-column grid layout */}
+      <div className="px-4 lg:px-8 grid lg:grid-cols-[300px_1fr] gap-5 items-start">
 
-      {/* Categories */}
-      <div className="px-4 lg:px-8 space-y-2.5">
-        {items.length === 0 ? (
-          <div className="card p-12 text-center rounded-2xl">
-            <Plane size={40} className="mx-auto text-slate-200 -rotate-45 mb-4" aria-hidden="true"/>
-            <p className="text-slate-400 text-sm mb-4">Your packing list is empty.</p>
-            {canEdit && (
-              <button onClick={generate} disabled={generating}
-                      className="px-6 py-2.5 rounded-xl text-sm font-semibold
-                                 bg-amber-50 text-amber-700 border border-amber-200
-                                 hover:bg-amber-100 transition-colors active:scale-95">
-                ✨ Generate suggestions
-              </button>
+        {/* ── Left panel ──────────────────────────────────────── */}
+        <div className="space-y-4 lg:sticky lg:top-6 lg:self-start pb-2 lg:pb-0">
+
+          {/* Progress card */}
+          <div className="card p-4 rounded-2xl">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-sm font-medium text-slate-700">
+                {packed} / {total} items packed
+              </span>
+              <span className="text-sm font-bold"
+                    style={{ color: pct === 100 ? "#10b981" : "var(--color-packing)" }}>
+                {pct}%
+              </span>
+            </div>
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-700"
+                   style={{
+                     width:`${pct}%`,
+                     background: pct === 100 ? "#10b981" : "linear-gradient(90deg,#60a5fa,#2563eb)",
+                   }}/>
+            </div>
+            {pct === 100 && total > 0 && (
+              <p className="text-xs text-emerald-600 font-semibold mt-2 text-center animate-bounce-in">
+                You&apos;re all packed! ✈️ Have a great trip!
+              </p>
+            )}
+
+            {/* Mini stats */}
+            {total > 0 && (
+              <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100">
+                {[
+                  { label: t("packing.totalLabel"),  value: total,          color: "#64748b" },
+                  { label: t("packing.packedLabel"), value: packed,         color: "#10b981" },
+                  { label: t("packing.leftLabel"),   value: total - packed, color: "#f59e0b" },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="text-center">
+                    <p className="text-lg font-bold leading-none" style={{ color, fontFamily:"var(--font-heading)" }}>
+                      {value}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5 font-medium">{label}</p>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        ) : (
-          Object.entries(grouped).map(([cat, catItems]) => {
-            const catPacked = catItems.filter(i=>i.is_packed).length;
-            const isOpen    = !collapsed[cat];
-            const catPct    = catItems.length > 0 ? (catPacked / catItems.length) * 100 : 0;
-            return (
-              <div key={cat} className="card overflow-hidden rounded-2xl">
-                <button onClick={() => setCollapsed(c=>({...c,[cat]:!c[cat]}))}
-                        className="w-full flex items-center justify-between px-4 py-3.5
-                                   hover:bg-slate-50 transition-colors"
-                        aria-expanded={isOpen}>
-                  <div className="flex items-center gap-2.5">
-                    {isOpen
-                      ? <ChevronDown size={14} className="text-slate-400"/>
-                      : <ChevronRight size={14} className="text-slate-400"/>}
-                    <span className="font-semibold text-slate-800 text-sm"
-                          style={{ fontFamily:"var(--font-heading)" }}>{cat}</span>
-                    <span className="text-xs text-slate-400">{catPacked}/{catItems.length}</span>
-                  </div>
-                  <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all"
-                         style={{
-                           width: `${catPct}%`,
-                           background: catPct===100 ? "#10b981" : "var(--color-packing)"
-                         }}/>
-                  </div>
-                </button>
 
-                {isOpen && (
-                  <div className="divide-y divide-slate-50">
-                    {catItems.map(item => (
-                      <div key={item.id}
-                           className="flex items-center gap-3 px-4 py-3 group transition-all"
-                           style={{ opacity: item.is_packed ? 0.5 : 1 }}>
-                        <button onClick={() => toggle(item)}
-                                className="w-5 h-5 rounded-md border-2 flex items-center
-                                           justify-center shrink-0 transition-all duration-150"
-                                style={item.is_packed
-                                  ? { background:"#10b981", borderColor:"#10b981" }
-                                  : { borderColor:"#cbd5e1" }}
-                                aria-label={item.is_packed ? "Mark unpacked":"Mark packed"}>
-                          {item.is_packed && <Check size={11} className="text-white" strokeWidth={3}/>}
-                        </button>
-                        <span className="flex-1 text-sm text-slate-700 transition-all select-none"
-                              style={{ textDecoration: item.is_packed ? "line-through" : "none" }}>
-                          {item.label}
-                        </span>
-                        {canEdit && (
-                          <button onClick={() => remove(item.id)}
-                                  className="opacity-0 group-hover:opacity-100 p-1 rounded-lg
-                                             text-slate-200 hover:text-red-400 transition-all"
-                                  aria-label="Delete item">
-                            <X size={13}/>
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+          {/* Add item form — always visible on desktop when canEdit */}
+          {canEdit && (
+            <div className="card p-4 rounded-2xl space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <Package size={15} className="text-emerald-500"/>
+                <h3 className="font-semibold text-sm text-slate-800"
+                    style={{ fontFamily:"var(--font-heading)" }}>{t("packing.addItem")}</h3>
               </div>
-            );
-          })
-        )}
+              <input
+                type="text" value={newLabel} placeholder={t("packing.itemName")}
+                onChange={e => setNewLabel(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addItem(); }}}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm
+                           focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-shadow"
+              />
+              <input
+                type="text" value={newCat} placeholder="Category"
+                onChange={e => setNewCat(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm
+                           focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-shadow"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={generate} disabled={generating}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
+                                   text-sm font-semibold disabled:opacity-60 border border-amber-200
+                                   bg-amber-50 text-amber-700 hover:bg-amber-100 active:scale-95 transition-all">
+                  {generating ? <Loader2 size={13} className="animate-spin"/> : <span>✨</span>}
+                  {generating ? "…" : t("packing.suggest")}
+                </button>
+                <button onClick={addItem}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
+                                   text-sm font-semibold text-white packing-gradient
+                                   hover:opacity-90 active:scale-95 transition-all">
+                  <Plus size={14}/> {t("packing.add")}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Right panel: Categories ──────────────────────────── */}
+        <div className="space-y-2.5 pb-24 lg:pb-8">
+          {items.length === 0 ? (
+            <div className="card p-12 text-center rounded-2xl">
+              <Plane size={40} className="mx-auto text-slate-200 -rotate-45 mb-4" aria-hidden="true"/>
+              <p className="text-slate-400 text-sm mb-4">{t("packing.emptyList")}</p>
+              {canEdit && (
+                <button onClick={generate} disabled={generating}
+                        className="px-6 py-2.5 rounded-xl text-sm font-semibold
+                                   bg-amber-50 text-amber-700 border border-amber-200
+                                   hover:bg-amber-100 transition-colors active:scale-95">
+                  ✨ {t("packing.generateBtn")}
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-2.5">
+              {Object.entries(grouped).map(([cat, catItems]) => {
+                const catPacked = catItems.filter(i => i.is_packed).length;
+                const isOpen    = !collapsed[cat];
+                const catPct    = catItems.length > 0 ? (catPacked / catItems.length) * 100 : 0;
+                return (
+                  <div key={cat} className="card overflow-hidden rounded-2xl h-fit">
+                    <button onClick={() => setCollapsed(c => ({ ...c, [cat]: !c[cat] }))}
+                            className="w-full flex items-center justify-between px-4 py-3.5
+                                       hover:bg-slate-50 transition-colors"
+                            aria-expanded={isOpen}>
+                      <div className="flex items-center gap-2.5">
+                        {isOpen
+                          ? <ChevronDown size={14} className="text-slate-400"/>
+                          : <ChevronRight size={14} className="text-slate-400"/>}
+                        <span className="font-semibold text-slate-800 text-sm"
+                              style={{ fontFamily:"var(--font-heading)" }}>{cat}</span>
+                        <span className="text-xs text-slate-400">{catPacked}/{catItems.length}</span>
+                      </div>
+                      <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all"
+                             style={{
+                               width: `${catPct}%`,
+                               background: catPct === 100 ? "#10b981" : "#2563eb",
+                             }}/>
+                      </div>
+                    </button>
+
+                    {isOpen && (
+                      <div className="divide-y divide-slate-50">
+                        {catItems.map(item => (
+                          <div key={item.id}
+                               className="flex items-center gap-3 px-4 py-3 group transition-all"
+                               style={{ opacity: item.is_packed ? 0.5 : 1 }}>
+                            <button onClick={() => toggle(item)}
+                                    className="w-5 h-5 rounded-md border-2 flex items-center
+                                               justify-center shrink-0 transition-all duration-150"
+                                    style={item.is_packed
+                                      ? { background:"#10b981", borderColor:"#10b981" }
+                                      : { borderColor:"#cbd5e1" }}
+                                    aria-label={item.is_packed ? "Mark unpacked" : "Mark packed"}>
+                              {item.is_packed && <Check size={11} className="text-white" strokeWidth={3}/>}
+                            </button>
+                            <span className="flex-1 text-sm text-slate-700 transition-all select-none"
+                                  style={{ textDecoration: item.is_packed ? "line-through" : "none" }}>
+                              {item.label}
+                            </span>
+                            {canEdit && (
+                              <button onClick={() => remove(item.id)}
+                                      className="opacity-40 lg:opacity-0 lg:group-hover:opacity-100
+                                                 p-1 rounded-lg text-slate-300 hover:text-red-400
+                                                 active:text-red-500 transition-all shrink-0"
+                                      aria-label="Delete item">
+                                <X size={13}/>
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

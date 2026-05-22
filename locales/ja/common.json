@@ -14,7 +14,19 @@
     "createTrip": "+ 新しい旅を作成",
     "noTrips": "まだ旅がありません。最初の冒険を計画しましょう！",
     "mates": "{{count}}人の仲間",
-    "loading": "読み込み中..."
+    "loading": "読み込み中...",
+    "newTrip": "新しい旅",
+    "totalTrips": "総旅行数",
+    "destinations": "目的地数",
+    "collaborative": "グループ旅行",
+    "avgDuration": "平均期間",
+    "tripInsights": "旅のインサイト",
+    "upcoming": "予定中",
+    "completed": "完了",
+    "pastTrips": "過去の旅",
+    "avgDaysTrip": "平均{{n}}日/旅",
+    "destinationsCount_one": "{{count}}か所",
+    "destinationsCount_other": "{{count}}か所"
   },
   "auth": {
     "signIn": "Googleでサインイン",
@@ -34,7 +46,15 @@
     "deleteTrip": "旅を削除",
     "shareTrip": "旅を共有",
     "members": "メンバー",
-    "overview": "概要"
+    "overview": "概要",
+    "travelers": "旅行者",
+    "copyLink": "リンクをコピー",
+    "makePublic": "公開する",
+    "makePrivate": "非公開にする",
+    "shareDesc_public": "リンクがあれば誰でも旅程を閲覧できます（読み取り専用）。",
+    "shareDesc_private": "旅は非公開です — 旅行者のみが閲覧できます。",
+    "perTraveler": "1人あたり",
+    "totalBudget": "総予算"
   },
   "itinerary": {
     "day": "{{number}}日目",
@@ -87,7 +107,16 @@
     "unpacked": "未梱包",
     "category": "カテゴリー",
     "assignTo": "担当者",
-    "deleteItem": "アイテムを削除"
+    "deleteItem": "アイテムを削除",
+    "totalLabel": "合計",
+    "packedLabel": "梱包済み",
+    "leftLabel": "残り",
+    "itemName": "アイテム名…",
+    "suggest": "提案",
+    "add": "追加",
+    "emptyList": "荷造りリストは空です。",
+    "generateBtn": "提案を生成",
+    "allPacked": "全部準備完了！✈️ 良い旅を！"
   },
   "documents": {
     "title": "書類",
@@ -96,6 +125,10 @@
     "maxSize": "最大10MB",
     "view": "表示",
     "delete": "削除",
+    "docType": "書類の種類",
+    "uploading": "アップロード中…",
+    "noDocuments": "書類がありません。",
+    "uploadPrompt": " 上からファイルをアップロードしてください。",
     "types": {
       "flight": "フライト",
       "hotel": "ホテル",

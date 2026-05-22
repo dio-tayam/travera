@@ -23,6 +23,15 @@ const CAT_EMOJI: Record<string, string> = {
   activity:"🎯", shopping:"🛍️", other:"📌",
 };
 
+const CAT_META: Record<string, { color: string; bg: string }> = {
+  accommodation: { color: "#2563eb", bg: "#eff6ff" },
+  food:          { color: "#e11d48", bg: "#fff1f2" },
+  transport:     { color: "#64748b", bg: "#f1f5f9" },
+  activity:      { color: "#f59e0b", bg: "#fffbeb" },
+  shopping:      { color: "#8b5cf6", bg: "#f5f3ff" },
+  other:         { color: "#0ea5e9", bg: "#f0f9ff" },
+};
+
 function computeSettlements(expenses: Expense[], splits: Split[], members: Member[]) {
   const bal: Record<string,number> = {};
   members.forEach(m => { bal[m.user_id] = 0; });
@@ -133,7 +142,7 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
   const spentPct = budget > 0 ? Math.min((totalSpent / budget) * 100, 100) : 0;
 
   return (
-    <div className="min-h-screen pb-8 animate-fade-in" style={{ background:"var(--color-background)" }}>
+    <div className="h-full overflow-y-auto animate-fade-in" style={{ background:"var(--color-background)" }}>
 
       {/* Header */}
       <div className="px-4 lg:px-8 pt-6 pb-4 flex items-center justify-between">
@@ -154,7 +163,7 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
       </div>
 
       {/* Summary cards */}
-      <div className="px-4 lg:px-8 grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      <div className="px-4 lg:px-8 grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         {[
           { label:t("budget.totalBudget"), value:formatCurrency(budget,trip.currency),
             icon:Wallet, color:"#2563eb", bg:"#eff6ff", border:"#bfdbfe" },
@@ -167,16 +176,15 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
           { label:t("budget.yourShare"),   value:formatCurrency(myShare,trip.currency),
             icon:User, color:"#8b5cf6", bg:"#f5f3ff", border:"#ddd6fe" },
         ].map(({ label, value, icon:Icon, color, bg, border }) => (
-          <div key={label} className="card p-4 rounded-2xl"
-               style={{ borderTop:`3px solid ${color}` }}>
+          <div key={label} className="card p-3.5 rounded-2xl">
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
                    style={{ backgroundColor: bg, border: `1px solid ${border}` }}>
-                <Icon size={13} style={{ color }} aria-hidden="true"/>
+                <Icon size={12} style={{ color }} aria-hidden="true"/>
               </div>
               <span className="text-xs text-slate-500 font-medium truncate">{label}</span>
             </div>
-            <p className="text-xl font-bold" style={{ color, fontFamily:"var(--font-heading)" }}>
+            <p className="text-[18px] font-bold leading-none" style={{ color, fontFamily:"var(--font-heading)" }}>
               {value}
             </p>
           </div>
@@ -195,14 +203,18 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
               <div className="h-full rounded-full transition-all duration-700"
                    style={{
                      width:`${spentPct}%`,
-                     background: spentPct > 90 ? "#ef4444" : spentPct > 70 ? "#f59e0b" : "#10b981"
+                     background: spentPct >= 100
+                       ? "linear-gradient(90deg,#1e3a8a,#2563eb,#0ea5e9)"
+                       : spentPct > 70
+                       ? "linear-gradient(90deg,#2563eb,#1d4ed8)"
+                       : "linear-gradient(90deg,#60a5fa,#2563eb)",
                    }}/>
             </div>
           </div>
         </div>
       )}
 
-      <div className="px-4 lg:px-8 grid lg:grid-cols-2 gap-5">
+      <div className="px-4 lg:px-8 grid lg:grid-cols-2 gap-5 pb-8">
         {/* Expenses */}
         <div className="space-y-3">
           <h2 className="font-bold text-slate-900 text-base" style={{ fontFamily:"var(--font-heading)" }}>
@@ -213,17 +225,20 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
               <Plane size={36} className="mx-auto text-slate-200 -rotate-45 mb-3" aria-hidden="true"/>
               <p className="text-sm text-slate-400">No expenses yet. Start tracking!</p>
             </div>
-          ) : Object.entries(grouped).map(([cat, catExp]) => (
+          ) : Object.entries(grouped).map(([cat, catExp]) => {
+            const meta = CAT_META[cat] ?? CAT_META.other;
+            return (
             <div key={cat} className="card overflow-hidden rounded-2xl">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-50 bg-slate-50/80">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-50"
+                   style={{ backgroundColor: meta.bg }}>
                 <div className="flex items-center gap-2">
                   <span className="text-base">{CAT_EMOJI[cat]}</span>
-                  <span className="text-sm font-semibold text-slate-700"
-                        style={{ fontFamily:"var(--font-heading)" }}>
+                  <span className="text-sm font-semibold"
+                        style={{ fontFamily:"var(--font-heading)", color: meta.color }}>
                     {t(`budget.categories.${cat}`)}
                   </span>
                 </div>
-                <span className="text-sm font-bold text-amber-600">
+                <span className="text-sm font-bold" style={{ color: meta.color }}>
                   {formatCurrency(catExp.reduce((s,e)=>s+Number(e.amount),0), trip.currency)}
                 </span>
               </div>
@@ -252,7 +267,8 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
                 </div>
               ))}
             </div>
-          ))}
+          );
+          })}
         </div>
 
         {/* Settlements */}
@@ -314,7 +330,7 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
                      className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm
                                 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"/>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 xs:grid-cols-2 gap-3">
                 <input type="number" required min="0" step="0.01" placeholder="Amount"
                        value={form.amount}
                        onChange={e => setForm(f=>({...f,amount:e.target.value}))}

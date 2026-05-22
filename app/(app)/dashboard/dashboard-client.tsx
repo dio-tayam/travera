@@ -6,8 +6,10 @@ import "@/lib/i18n";
 import { CreateTripDialog } from "@/components/shared/create-trip-dialog";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import type { Database } from "@/types/database";
-import { Plus, Plane, MapPin, Calendar, Users } from "lucide-react";
+import { Plus, Plane, MapPin, Calendar, Users, Clock, Globe, TrendingUp, LogOut } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { formatDateRange } from "@/lib/utils";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -20,7 +22,6 @@ function TripCard({ trip }: { trip: Trip }) {
     <Link href={`/trips/${trip.id}`}
           className="card card-hover block overflow-hidden group focus-visible:ring-2
                      focus-visible:ring-blue-500 focus-visible:ring-offset-2 rounded-2xl">
-      {/* Cover */}
       <div className="relative h-36 bg-slate-100 overflow-hidden">
         {trip.cover_image_url
           ? <img src={trip.cover_image_url} alt={trip.title}
@@ -41,7 +42,6 @@ function TripCard({ trip }: { trip: Trip }) {
           </span>
         )}
       </div>
-      {/* Info */}
       <div className="p-3.5 space-y-1.5">
         <p className="font-bold text-slate-900 text-[14px] line-clamp-1 leading-snug"
            style={{ fontFamily: "var(--font-heading)" }}>{trip.title}</p>
@@ -62,18 +62,40 @@ function TripCard({ trip }: { trip: Trip }) {
 
 export function DashboardClient({ profile, trips, userId }: Props) {
   const { t } = useTranslation("common");
+  const router = useRouter();
   const [showCreate, setShowCreate] = useState(false);
 
-  // Listen for "open-create-trip" event dispatched by the sidebar New Trip button
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
+
   useEffect(() => {
     const handler = () => setShowCreate(true);
     document.addEventListener("open-create-trip", handler);
     return () => document.removeEventListener("open-create-trip", handler);
   }, []);
 
-  const name    = profile?.display_name?.split(" ")[0] ?? "Traveler";
-  const upcoming = trips.filter(t => !t.end_date || new Date(t.end_date) >= new Date());
-  const past     = trips.filter(t =>  t.end_date && new Date(t.end_date) <  new Date());
+  const name      = profile?.display_name?.split(" ")[0] ?? "Traveler";
+  const upcoming  = trips.filter(t => !t.end_date || new Date(t.end_date) >= new Date());
+  const past      = trips.filter(t =>  t.end_date && new Date(t.end_date) <  new Date());
+
+  const uniqueDestinations = new Set(trips.filter(t => t.destination).map(t => t.destination!)).size;
+  const collaborativeTrips = trips.filter(t => t.memberCount > 1).length;
+  const durations = trips
+    .filter(t => t.start_date && t.end_date)
+    .map(t => Math.ceil((new Date(t.end_date!).getTime() - new Date(t.start_date!).getTime()) / 86400000));
+  const avgDuration = durations.length > 0
+    ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+    : 0;
+
+  const stats = [
+    { label: t("dashboard.totalTrips"),   value: trips.length,          icon: Plane,  color: "#2563eb", bg: "#eff6ff" },
+    { label: t("dashboard.destinations"), value: uniqueDestinations,    icon: Globe,  color: "#8b5cf6", bg: "#f5f3ff" },
+    { label: t("dashboard.collaborative"),value: collaborativeTrips,    icon: Users,  color: "#f59e0b", bg: "#fffbeb" },
+    { label: t("dashboard.avgDuration"),  value: avgDuration > 0 ? `${avgDuration}d` : "—", icon: Clock, color: "#10b981", bg: "#ecfdf5" },
+  ];
 
   return (
     <div className="h-full flex flex-col" style={{ background: "var(--color-background)" }}>
@@ -88,40 +110,95 @@ export function DashboardClient({ profile, trips, userId }: Props) {
           <span className="font-extrabold text-blue-700 text-base"
                 style={{ fontFamily: "var(--font-heading)" }}>Travera</span>
         </div>
-        <LanguageSwitcher/>
+        <div className="flex items-center gap-1">
+          <LanguageSwitcher/>
+          <button
+            onClick={handleSignOut}
+            className="p-2 rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-500
+                       active:bg-red-100 transition-colors"
+            aria-label={t("nav.signOut")}
+          >
+            <LogOut size={16}/>
+          </button>
+        </div>
       </div>
 
       {/* ── Content ────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-5 animate-fade-in">
 
         {/* Hero banner */}
-        <div className="relative overflow-hidden rounded-2xl sky-gradient px-5 py-5 flex
-                        items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-bold text-white"
-                style={{ fontFamily: "var(--font-heading)" }}>
-              {t("dashboard.greeting", { name })} ✈️
-            </h1>
-            <p className="text-white/70 text-sm mt-0.5" style={{ fontFamily: "var(--font-body)" }}>
-              {trips.length === 0 ? "Ready for your next adventure?" :
-               `${upcoming.length} upcoming · ${past.length} past`}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {[{ n: trips.length, l: "Total" },
-              { n: upcoming.length, l: "Upcoming" },
-              { n: past.length, l: "Past" }].map(({ n, l }) => (
-              <div key={l} className="bg-white/15 backdrop-blur-sm rounded-xl px-3 py-2
-                                      text-center min-w-[54px] border border-white/10">
-                <p className="text-white font-bold text-xl leading-none">{n}</p>
-                <p className="text-white/60 text-[11px] mt-0.5 font-medium">{l}</p>
-              </div>
-            ))}
+        <div className="relative overflow-hidden rounded-2xl sky-gradient px-5 py-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h1 className="text-lg font-bold text-white"
+                  style={{ fontFamily: "var(--font-heading)" }}>
+                {t("dashboard.greeting", { name })} ✈️
+              </h1>
+              <p className="text-white/70 text-sm mt-0.5">
+                {trips.length === 0
+                  ? "Ready for your next adventure?"
+                  : `${upcoming.length} upcoming · ${past.length} past`}
+              </p>
+            </div>
+            <button onClick={() => setShowCreate(true)}
+                    className="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm
+                               font-semibold bg-white/20 hover:bg-white/30 text-white border
+                               border-white/20 transition-all active:scale-95 shrink-0">
+              <Plus size={14}/> New Trip
+            </button>
           </div>
           <div className="absolute -right-4 -bottom-4 opacity-[0.08] pointer-events-none">
             <Plane size={88} className="-rotate-45 text-white"/>
           </div>
         </div>
+
+        {/* Analytics stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {stats.map(({ label, value, icon: Icon, color, bg }) => (
+            <div key={label} className="card p-4 rounded-2xl">
+              <div className="flex items-center gap-2 mb-2.5">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                     style={{ backgroundColor: bg }}>
+                  <Icon size={14} style={{ color }} aria-hidden="true"/>
+                </div>
+                <span className="text-xs text-slate-500 font-medium leading-tight">{label}</span>
+              </div>
+              <p className="text-2xl font-bold leading-none"
+                 style={{ color, fontFamily: "var(--font-heading)" }}>{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Trend row — only when there are trips */}
+        {trips.length > 0 && (
+          <div className="card p-4 rounded-2xl flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={15} className="text-blue-500"/>
+              <span className="text-sm font-semibold text-slate-700"
+                    style={{ fontFamily: "var(--font-heading)" }}>{t("dashboard.tripInsights")}</span>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+              <span className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+                <span className="w-2 h-2 rounded-full bg-blue-400 inline-block"/>
+                {upcoming.length} {t("dashboard.upcoming")}
+              </span>
+              <span className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+                <span className="w-2 h-2 rounded-full bg-slate-300 inline-block"/>
+                {past.length} {t("dashboard.completed")}
+              </span>
+              {avgDuration > 0 && (
+                <span className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+                  <Clock size={11}/> {t("dashboard.avgDaysTrip", { n: avgDuration })}
+                </span>
+              )}
+              {uniqueDestinations > 0 && (
+                <span className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+                  <Globe size={11}/> {t(`dashboard.destinationsCount_${uniqueDestinations === 1 ? "one" : "other"}`, { count: uniqueDestinations })}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Section header */}
         <div className="flex items-center justify-between">
@@ -173,7 +250,7 @@ export function DashboardClient({ profile, trips, userId }: Props) {
         {past.length > 0 && (
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2.5">
-              Past Trips
+              {t("dashboard.pastTrips")}
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-3 opacity-65">
               {past.map(trip => <TripCard key={trip.id} trip={trip}/>)}

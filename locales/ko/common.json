@@ -14,7 +14,19 @@
     "createTrip": "+ 새 여행 만들기",
     "noTrips": "아직 여행이 없습니다. 첫 번째 모험을 계획해 보세요!",
     "mates": "{{count}}명의 동행",
-    "loading": "불러오는 중..."
+    "loading": "불러오는 중...",
+    "newTrip": "새 여행",
+    "totalTrips": "전체 여행",
+    "destinations": "목적지",
+    "collaborative": "그룹 여행",
+    "avgDuration": "평균 기간",
+    "tripInsights": "여행 인사이트",
+    "upcoming": "예정",
+    "completed": "완료",
+    "pastTrips": "지난 여행",
+    "avgDaysTrip": "평균 {{n}}일/여행",
+    "destinationsCount_one": "{{count}}개 목적지",
+    "destinationsCount_other": "{{count}}개 목적지"
   },
   "auth": {
     "signIn": "Google로 로그인",
@@ -34,7 +46,15 @@
     "deleteTrip": "여행 삭제",
     "shareTrip": "여행 공유",
     "members": "멤버",
-    "overview": "개요"
+    "overview": "개요",
+    "travelers": "여행자",
+    "copyLink": "링크 복사",
+    "makePublic": "공개로 설정",
+    "makePrivate": "비공개로 설정",
+    "shareDesc_public": "링크가 있는 누구나 일정을 볼 수 있습니다(읽기 전용).",
+    "shareDesc_private": "여행은 비공개입니다 — 여행자만 볼 수 있습니다.",
+    "perTraveler": "1인당",
+    "totalBudget": "총 예산"
   },
   "itinerary": {
     "day": "{{number}}일차",
@@ -87,7 +107,16 @@
     "unpacked": "미챙김",
     "category": "카테고리",
     "assignTo": "담당자",
-    "deleteItem": "아이템 삭제"
+    "deleteItem": "아이템 삭제",
+    "totalLabel": "전체",
+    "packedLabel": "완료",
+    "leftLabel": "남은",
+    "itemName": "아이템 이름…",
+    "suggest": "추천",
+    "add": "추가",
+    "emptyList": "짐 목록이 비어 있습니다.",
+    "generateBtn": "추천 생성",
+    "allPacked": "다 챙겼어요! ✈️ 좋은 여행 되세요!"
   },
   "documents": {
     "title": "서류",
@@ -96,6 +125,10 @@
     "maxSize": "최대 10MB",
     "view": "보기",
     "delete": "삭제",
+    "docType": "문서 유형",
+    "uploading": "업로드 중…",
+    "noDocuments": "서류가 없습니다.",
+    "uploadPrompt": " 위에서 첫 번째 파일을 업로드하세요.",
     "types": {
       "flight": "항공",
       "hotel": "호텔",

@@ -14,7 +14,19 @@
     "createTrip": "+ Nieuwe Reis Maken",
     "noTrips": "Nog geen reizen. Plan je eerste avontuur!",
     "mates": "{{count}} reisgenoten",
-    "loading": "Laden..."
+    "loading": "Laden...",
+    "newTrip": "Nieuwe reis",
+    "totalTrips": "Alle reizen",
+    "destinations": "Bestemmingen",
+    "collaborative": "Groepsreizen",
+    "avgDuration": "Gem. duur",
+    "tripInsights": "Reis-inzichten",
+    "upcoming": "aankomend",
+    "completed": "voltooid",
+    "pastTrips": "Vorige reizen",
+    "avgDaysTrip": "gem. {{n}} dagen/reis",
+    "destinationsCount_one": "{{count}} bestemming",
+    "destinationsCount_other": "{{count}} bestemmingen"
   },
   "auth": {
     "signIn": "Inloggen met Google",
@@ -34,7 +46,15 @@
     "deleteTrip": "Reis Verwijderen",
     "shareTrip": "Reis Delen",
     "members": "Leden",
-    "overview": "Overzicht"
+    "overview": "Overzicht",
+    "travelers": "Reizigers",
+    "copyLink": "Link kopiëren",
+    "makePublic": "Openbaar maken",
+    "makePrivate": "Privé maken",
+    "shareDesc_public": "Iedereen met de link kan het reisplan zien (alleen lezen).",
+    "shareDesc_private": "Reis is privé — alleen reizigers kunnen het zien.",
+    "perTraveler": "Per reiziger",
+    "totalBudget": "Totaalbudget"
   },
   "itinerary": {
     "day": "Dag {{number}}",
@@ -87,7 +107,16 @@
     "unpacked": "Niet Ingepakt",
     "category": "Categorie",
     "assignTo": "Toewijzen Aan",
-    "deleteItem": "Item Verwijderen"
+    "deleteItem": "Item Verwijderen",
+    "totalLabel": "Totaal",
+    "packedLabel": "Ingepakt",
+    "leftLabel": "Over",
+    "itemName": "Itemnaam…",
+    "suggest": "Suggereren",
+    "add": "Toevoegen",
+    "emptyList": "Uw paklijst is leeg.",
+    "generateBtn": "Suggesties genereren",
+    "allPacked": "Alles ingepakt! ✈️ Goede reis!"
   },
   "documents": {
     "title": "Documenten",
@@ -96,6 +125,10 @@
     "maxSize": "Max. 10MB",
     "view": "Bekijken",
     "delete": "Verwijderen",
+    "docType": "Documenttype",
+    "uploading": "Uploaden…",
+    "noDocuments": "Geen documenten.",
+    "uploadPrompt": " Upload uw eerste bestand hierboven.",
     "types": {
       "flight": "Vlucht",
       "hotel": "Hotel",

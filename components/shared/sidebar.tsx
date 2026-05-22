@@ -196,7 +196,7 @@ export function Sidebar({ tripId }: SidebarProps) {
 
       {/* ── Bottom ────────────────────────────────────────────────── */}
       <div className="border-t border-slate-100 p-2 space-y-0.5">
-        {!collapsed && <LanguageSwitcher className="w-full"/>}
+        {!collapsed && <LanguageSwitcher className="w-full" dropUp/>}
         <button onClick={handleSignOut}
                 className={cn(
                   "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-xl text-[13px] font-medium",
