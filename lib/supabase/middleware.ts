@@ -9,10 +9,10 @@ export async function updateSession(request: NextRequest) {
   if (code && request.nextUrl.pathname !== "/auth/callback") {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/callback";
+    const next = request.nextUrl.pathname;
     url.search = "";
     url.searchParams.set("code", code);
-    const next = request.nextUrl.pathname;
-    url.searchParams.set("next", next === "/" || next === "/login" ? "/dashboard" : next);
+    url.searchParams.set("next", request.nextUrl.searchParams.get("next") ?? (next === "/" || next === "/login" ? "/dashboard" : next));
     return NextResponse.redirect(url);
   }
 

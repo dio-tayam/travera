@@ -128,6 +128,12 @@ export interface Database {
         Update: Partial<Omit<TripMemberRow, "id">>;
         Relationships: [];
       };
+      trip_invitations: {
+        Row: { id: string; trip_id: string; email: string; role: "editor" | "viewer"; invited_by: string; created_at: string };
+        Insert: { id?: string; trip_id: string; email: string; role?: "editor" | "viewer"; invited_by: string; created_at?: string };
+        Update: Partial<{ email: string; role: "editor" | "viewer" }>;
+        Relationships: [];
+      };
       itinerary_days: {
         Row: ItineraryDayRow;
         Insert: Omit<ItineraryDayRow, "id">;
@@ -166,7 +172,10 @@ export interface Database {
       };
     };
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    Functions: {
+      add_registered_trip_member: { Args: { p_trip_id: string; p_email: string }; Returns: boolean };
+      accept_trip_invitations: { Args: Record<string, never>; Returns: number };
+    };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };
   };

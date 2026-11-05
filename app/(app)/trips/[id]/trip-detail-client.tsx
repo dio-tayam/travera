@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import "@/lib/i18n";
 import { toast } from "sonner";
-import { ArrowRight, Check, Copy, Globe2, Lock } from "lucide-react";
+import { ArrowRight, Check, Copy, Globe2, Lock, Mail, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn, formatCurrency, formatDateRange, tripLength } from "@/lib/utils";
 import { tripStatus } from "@/components/shared/trip-pass";
@@ -34,6 +34,8 @@ export function TripDetailClient({ trip, membership, members }: Props) {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shareUrl, setShareUrl] = useState(`/share/${trip.share_token}`);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviting, setInviting] = useState(false);
 
   useEffect(() => { setShareUrl(`${window.location.origin}/share/${trip.share_token}`); }, [trip.share_token]);
 
@@ -57,6 +59,19 @@ export function TripDetailClient({ trip, membership, members }: Props) {
       toast.success(!isPublic ? "Anyone with the link can now view this trip" : "Trip is private again");
     }
     setSaving(false);
+  }
+
+  async function inviteTraveler(e: React.FormEvent) {
+    e.preventDefault();
+    setInviting(true);
+    const response = await fetch(`/api/trips/${trip.id}/invitations`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: inviteEmail.trim() }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) toast.error(result.error ?? "Couldn't send invitation");
+    else { toast.success(result.added ? "Traveler added to the trip" : "Invitation sent by email"); setInviteEmail(""); if (result.added) window.location.reload(); }
+    setInviting(false);
   }
 
   return (
@@ -167,6 +182,12 @@ export function TripDetailClient({ trip, membership, members }: Props) {
                   </div>
                 )}
               </div>
+              {!isPublic && <form onSubmit={inviteTraveler} className="panel mt-4 flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-end">
+                <label className="min-w-0 flex-1 text-[13px] font-medium text-ink">Invite a traveler by Gmail or email
+                  <span className="mt-2 block"><input type="text" inputMode="email" autoComplete="off" required value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="traveler@gmail.com" aria-label="Traveler email address" className="h-10 w-full rounded-[var(--radius-control)] border border-line bg-paper px-3 text-[14px]" /></span>
+                </label>
+                <Button type="submit" loading={inviting}><Mail size={15} /> Send invite</Button>
+              </form>}
             </section>
           )}
         </div>
@@ -174,6 +195,7 @@ export function TripDetailClient({ trip, membership, members }: Props) {
         {/* Travelers */}
         <aside className="lg:sticky lg:top-6" aria-labelledby="travelers-heading">
           <SectionTitle meta={members.length}><span id="travelers-heading">{t("trip.travelers")}</span></SectionTitle>
+          {members.length > 1 && <p className="mb-3 flex items-center gap-2 text-[12px] text-ink-2"><UserPlus size={14}/> Shared group: all travelers can see and edit this trip.</p>}
           <ul className="panel divide-y divide-line">
             {members.map(m => (
               <li key={m.user_id} className="flex items-center gap-3 px-4 py-3">
