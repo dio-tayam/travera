@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/shared/sidebar";
 import { MobileNav } from "@/components/shared/mobile-nav";
-import { MobileTripHeader } from "@/components/shared/mobile-trip-header";
+import { MobileTopBar } from "@/components/shared/mobile-top-bar";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function TripLayout({
   children,
@@ -10,20 +11,23 @@ export default async function TripLayout({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const supabase = await createClient();
+  const { data: trip } = await supabase
+    .from("trips")
+    .select("id,title,destination,start_date,end_date")
+    .eq("id", id)
+    .maybeSingle();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
-      <Sidebar tripId={id} />
-
-      {/* Right side: header bar (mobile only) + scrollable content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <MobileTripHeader tripId={id} />
-        {/* pb-20 reserves space above the fixed mobile nav (min-h-14 nav + safe area) */}
-        <div className="flex-1 overflow-hidden relative pb-20 lg:pb-0">
+    <div className="flex h-dvh overflow-hidden bg-paper">
+      <Sidebar trip={trip} />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <MobileTopBar trip={trip} />
+        {/* pb-16 reserves room for the fixed mobile tab bar */}
+        <main className="relative min-h-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">
           {children}
-        </div>
+        </main>
       </div>
-
       <MobileNav tripId={id} />
     </div>
   );

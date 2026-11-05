@@ -1,229 +1,192 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "@/lib/i18n";
-import { createClient } from "@/lib/supabase/client";
-import { X, Plane, MapPin, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { Check, Loader2, MapPin } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { searchPlaces, type LatLng, type PlaceResult } from "@/lib/maps";
+import { STOP_META, STOP_TYPES } from "@/lib/categories";
+import { cn } from "@/lib/utils";
+import { Modal, ModalActions } from "@/components/ui/modal";
+import { Field, Input, Textarea } from "@/components/ui/field";
+import { Button } from "@/components/ui/button";
 import type { Database } from "@/types/database";
-import usePlacesAutocomplete, { getGeocode, getLatLng } from "use-places-autocomplete";
+import type { PlaceDraft } from "./trip-map";
 
 type Stop = Database["public"]["Tables"]["stops"]["Row"];
-
-const STOP_TYPES = ["hotel","activity","restaurant","transit","flight","free"] as const;
-const TYPE_EMOJI: Record<string,string> = {
-  hotel:"🏨", activity:"🎯", restaurant:"🍜",
-  transit:"🚌", flight:"✈️", free:"🌿",
-};
 
 interface Props {
   open: boolean; onClose: () => void;
   tripId: string; dayId: string;
   editingStop?: Stop | null;
+  /** A place picked on the map — pre-fills title, address and coordinates for a new stop. */
+  prefill?: PlaceDraft | null;
+  /** Bias place search toward this point (e.g. the day's other stops). */
+  near?: LatLng | null;
   nextOrder: number; onSaved: () => void;
 }
 
-export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, nextOrder, onSaved }: Props) {
+export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefill, near, nextOrder, onSaved }: Props) {
   const { t } = useTranslation("common");
-  const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<Partial<Stop>>(editingStop ?? {
-    title: "", type: "activity", address: null, lat: null, lng: null,
-    place_id: null, start_time: null, duration_minutes: null, notes: null,
+    title: prefill && prefill.title !== "Dropped pin" && prefill.title !== "Loading place…" ? prefill.title : "",
+    type: "activity", address: prefill?.address ?? null, lat: prefill?.lat ?? null, lng: prefill?.lng ?? null,
+    place_id: prefill?.placeId ?? null, start_time: null, duration_minutes: null, notes: null,
   });
 
-  const {
-    ready, value: searchVal,
-    suggestions: { status, data },
-    setValue: setSearch, clearSuggestions,
-  } = usePlacesAutocomplete({ debounce: 300, requestOptions: { types: ["establishment","geocode"] } });
+  // Free place search (Photon / OpenStreetMap), debounced and cancellable.
+  const [search, setSearch] = useState(editingStop?.address ?? prefill?.address ?? "");
+  const [results, setResults] = useState<PlaceResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [active, setActive] = useState(-1);
+  const typed = useRef(false); // only search after the user types, not for prefilled values
 
-  const selectPlace = useCallback(async (desc: string, placeId: string) => {
-    setSearch(desc, false);
-    clearSuggestions();
-    try {
-      const results = await getGeocode({ address: desc });
-      const { lat, lng } = getLatLng(results[0]);
-      setForm(f => ({ ...f, address: desc, lat, lng, place_id: placeId }));
-    } catch { /* geocode failed silently */ }
-  }, [setSearch, clearSuggestions]);
+  useEffect(() => {
+    if (!typed.current) return;
+    const q = search.trim();
+    if (q.length < 3) { setResults([]); setSearching(false); return; }
+    const ctrl = new AbortController();
+    setSearching(true);
+    const id = setTimeout(() => {
+      searchPlaces(q, near, ctrl.signal)
+        .then(r => { setResults(r); setActive(-1); })
+        .catch(() => { /* aborted or offline */ })
+        .finally(() => { if (!ctrl.signal.aborted) setSearching(false); });
+    }, 350);
+    return () => { clearTimeout(id); ctrl.abort(); };
+  }, [search, near]);
 
-  if (!open) return null;
+  function selectPlace(p: PlaceResult) {
+    typed.current = false;
+    setSearch(p.address);
+    setResults([]);
+    setForm(f => ({ ...f, title: f.title?.trim() ? f.title : p.title, address: p.address, lat: p.lat, lng: p.lng, place_id: p.placeId }));
+  }
 
-  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
+  function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!results.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(a => (a + 1) % results.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(a => (a <= 0 ? results.length - 1 : a - 1)); }
+    else if (e.key === "Enter" && active >= 0) { e.preventDefault(); selectPlace(results[active]); }
+    else if (e.key === "Escape") { e.stopPropagation(); setResults([]); }
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!form.title) return;
+    if (!form.title?.trim()) return;
     setLoading(true);
-    try {
-      if (editingStop) {
-        const { error } = await supabase.from("stops").update({
-          title: form.title!, type: form.type as Stop["type"],
-          address: form.address, lat: form.lat, lng: form.lng, place_id: form.place_id,
-          start_time: form.start_time, duration_minutes: form.duration_minutes, notes: form.notes,
-        }).eq("id", editingStop.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("stops").insert({
-          trip_id: tripId, day_id: dayId, order_index: nextOrder,
-          title: form.title!, type: (form.type as Stop["type"]) ?? "activity",
-          address: form.address ?? null, lat: form.lat ?? null, lng: form.lng ?? null,
-          place_id: form.place_id ?? null, start_time: form.start_time ?? null,
-          duration_minutes: form.duration_minutes ?? null, notes: form.notes ?? null,
-        });
-        if (error) throw error;
-      }
-      toast.success(editingStop ? "Stop updated!" : "Stop added! ✈️");
-      onSaved(); onClose();
-    } catch { toast.error("Failed to save stop"); }
-    finally { setLoading(false); }
+    const supabase = createClient();
+    const payload = {
+      title: form.title.trim(), type: (form.type as Stop["type"]) ?? "activity",
+      address: form.address ?? null, lat: form.lat ?? null, lng: form.lng ?? null,
+      place_id: form.place_id ?? null, start_time: form.start_time ?? null,
+      duration_minutes: form.duration_minutes ?? null, notes: form.notes ?? null,
+    };
+    const { error } = editingStop
+      ? await supabase.from("stops").update(payload).eq("id", editingStop.id)
+      : await supabase.from("stops").insert({ ...payload, trip_id: tripId, day_id: dayId, order_index: nextOrder });
+    setLoading(false);
+    if (error) { toast.error("Couldn't save this stop"); return; }
+    toast.success(editingStop ? "Stop updated" : "Stop added");
+    onSaved();
+    onClose();
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center
-                    p-0 sm:p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
-         role="dialog" aria-modal="true" aria-labelledby="stop-dialog-title">
-      <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl
-                      max-h-[90dvh] overflow-y-auto animate-slide-up">
+    <Modal open={open} onOpenChange={o => { if (!o) onClose(); }}
+           title={editingStop ? t("itinerary.editStop") : t("itinerary.addStop")}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Field label={t("itinerary.stopTitle")} htmlFor="stop-title">
+          <Input id="stop-title" required autoFocus value={form.title ?? ""}
+                 onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Sensō-ji Temple" />
+        </Field>
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 sticky top-0 bg-white z-10">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl itinerary-gradient flex items-center justify-center">
-              <Plane size={15} className="text-white -rotate-45"/>
-            </div>
-            <h2 id="stop-dialog-title" className="text-base font-bold text-slate-900"
-                style={{ fontFamily:"var(--font-heading)" }}>
-              {editingStop ? t("itinerary.editStop") : t("itinerary.addStop")}
-            </h2>
-          </div>
-          <button onClick={onClose}
-                  className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                  aria-label={t("common.close")}>
-            <X size={17}/>
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Title */}
-          <div className="space-y-1.5">
-            <label className="text-sm font-semibold text-slate-700"
-                   style={{ fontFamily:"var(--font-body)" }}>
-              {t("itinerary.stopTitle")} *
-            </label>
-            <input type="text" required value={form.title ?? ""}
-                   onChange={e => setForm(f=>({...f,title:e.target.value}))}
-                   placeholder="Senso-ji Temple"
-                   className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm
-                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                   style={{ fontFamily:"var(--font-body)" }}/>
-          </div>
-
-          {/* Type */}
-          <div className="space-y-1.5">
-            <label className="text-sm font-semibold text-slate-700"
-                   style={{ fontFamily:"var(--font-body)" }}>Type</label>
-            <div className="flex flex-wrap gap-2">
-              {STOP_TYPES.map(type => (
-                <button key={type} type="button"
-                        onClick={() => setForm(f=>({...f,type}))}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs
-                                   font-semibold border transition-all"
-                        style={form.type===type
-                          ? { background:"var(--color-itinerary)", color:"white", borderColor:"var(--color-itinerary)" }
-                          : { borderColor:"#e2e8f0", color:"#64748b", background:"white" }}>
-                  {TYPE_EMOJI[type]} {t(`itinerary.stopTypes.${type}`)}
+        <fieldset className="space-y-1.5">
+          <legend className="mb-1.5 text-[13px] font-medium text-ink">Type</legend>
+          <div className="grid grid-cols-3 gap-1.5">
+            {STOP_TYPES.map(type => {
+              const { icon: Icon, color } = STOP_META[type];
+              const active = form.type === type;
+              return (
+                <button key={type} type="button" aria-pressed={active}
+                        onClick={() => setForm(f => ({ ...f, type }))}
+                        className={cn(
+                          "flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border text-[12.5px] transition-colors",
+                          active ? "border-ink bg-ink text-paper" : "border-line-strong text-ink-2 hover:bg-sunken"
+                        )}>
+                  <Icon size={14} style={active ? undefined : { color }} aria-hidden="true" />
+                  <span className="truncate">{t(`itinerary.stopTypes.${type}`)}</span>
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
+        </fieldset>
 
-          {/* Address autocomplete */}
-          <div className="space-y-1.5 relative">
-            <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5"
-                   style={{ fontFamily:"var(--font-body)" }}>
-              <MapPin size={13} className="text-blue-400"/> {t("itinerary.address")}
-            </label>
-            <input type="text" disabled={!ready}
-                   value={searchVal || form.address || ""}
-                   onChange={e => setSearch(e.target.value)}
-                   placeholder="Search for a place…"
-                   className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm
-                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                   style={{ fontFamily:"var(--font-body)" }}/>
-            {status === "OK" && (
-              <ul className="absolute left-0 right-0 top-full mt-1 bg-white rounded-2xl shadow-xl
-                             border border-slate-100 z-20 max-h-48 overflow-y-auto">
-                {data.map(({ place_id, description }) => (
-                  <li key={place_id}>
-                    <button type="button" onClick={() => selectPlace(description, place_id)}
-                            className="w-full text-left px-4 py-3 text-sm text-slate-700
-                                       hover:bg-blue-50 hover:text-blue-700 transition-colors"
-                            style={{ fontFamily:"var(--font-body)" }}>
-                      {description}
+        <Field label={t("itinerary.address")} htmlFor="stop-address" optional
+               hint={form.lat != null ? undefined : "Pick a search result to pin this stop on the map."}>
+          <div className="relative">
+            <MapPin size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden="true" />
+            <Input id="stop-address" value={search} autoComplete="off" role="combobox"
+                   aria-expanded={results.length > 0} aria-controls="stop-address-results"
+                   aria-activedescendant={active >= 0 ? `place-${active}` : undefined}
+                   placeholder="Search for a place or address" className="pl-9 pr-9"
+                   onKeyDown={onSearchKey}
+                   onChange={e => {
+                     typed.current = true;
+                     setSearch(e.target.value);
+                     setForm(f => ({ ...f, address: e.target.value || null, lat: null, lng: null, place_id: null }));
+                   }} />
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+              {searching ? <Loader2 size={15} className="animate-spin text-ink-3" />
+                : form.lat != null ? <Check size={15} className="text-positive" aria-label="Pinned on the map" /> : null}
+            </span>
+            {results.length > 0 && (
+              <ul id="stop-address-results" role="listbox"
+                  className="absolute inset-x-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-[12px] border border-line bg-surface p-1 shadow-[0_16px_40px_-16px_rgb(22_24_29/0.3)]">
+                {results.map((p, i) => (
+                  <li key={`${p.placeId ?? ""}-${i}`} id={`place-${i}`} role="option" aria-selected={active === i}>
+                    <button type="button" onClick={() => selectPlace(p)} onMouseEnter={() => setActive(i)}
+                            className={cn("flex w-full items-start gap-2.5 rounded-[8px] px-3 py-2 text-left", active === i && "bg-sunken")}>
+                      <MapPin size={14} className="mt-0.5 shrink-0 text-ink-3" aria-hidden="true" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] text-ink">{p.title}</span>
+                        {p.subtitle && <span className="block truncate text-[12px] text-ink-3">{p.subtitle}</span>}
+                      </span>
                     </button>
                   </li>
                 ))}
+                <li className="px-3 pb-1 pt-1.5 text-[10.5px] text-ink-3">Search by Photon · © OpenStreetMap contributors</li>
               </ul>
             )}
           </div>
+        </Field>
 
-          {/* Time + Duration */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-sm font-semibold text-slate-700 flex items-center gap-1"
-                     style={{ fontFamily:"var(--font-body)" }}>
-                <Clock size={12} className="text-blue-400"/> {t("itinerary.startTime")}
-              </label>
-              <input type="time" value={form.start_time ?? ""}
-                     onChange={e => setForm(f=>({...f,start_time:e.target.value||null}))}
-                     className="w-full px-3 py-3 rounded-xl border border-slate-200 text-sm
-                                focus:outline-none focus:ring-2 focus:ring-blue-500"
-                     style={{ fontFamily:"var(--font-body)" }}/>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-semibold text-slate-700"
-                     style={{ fontFamily:"var(--font-body)" }}>
-                {t("itinerary.duration")}
-              </label>
-              <input type="number" min="1" placeholder="60"
-                     value={form.duration_minutes ?? ""}
-                     onChange={e => setForm(f=>({...f,duration_minutes:e.target.value?parseInt(e.target.value):null}))}
-                     className="w-full px-3 py-3 rounded-xl border border-slate-200 text-sm
-                                focus:outline-none focus:ring-2 focus:ring-blue-500"
-                     style={{ fontFamily:"var(--font-body)" }}/>
-            </div>
-          </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t("itinerary.startTime")} htmlFor="stop-time" optional>
+            <Input id="stop-time" type="time" value={form.start_time?.slice(0, 5) ?? ""}
+                   onChange={e => setForm(f => ({ ...f, start_time: e.target.value || null }))} />
+          </Field>
+          <Field label={t("itinerary.duration")} htmlFor="stop-duration" optional>
+            <Input id="stop-duration" type="number" inputMode="numeric" min="1" placeholder="60"
+                   value={form.duration_minutes ?? ""}
+                   onChange={e => setForm(f => ({ ...f, duration_minutes: e.target.value ? parseInt(e.target.value) : null }))} />
+          </Field>
+        </div>
 
-          {/* Notes */}
-          <div className="space-y-1.5">
-            <label className="text-sm font-semibold text-slate-700"
-                   style={{ fontFamily:"var(--font-body)" }}>{t("itinerary.notes")}</label>
-            <textarea rows={3} value={form.notes ?? ""}
-                      onChange={e => setForm(f=>({...f,notes:e.target.value||null}))}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm
-                                 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                      style={{ fontFamily:"var(--font-body)" }}/>
-          </div>
+        <Field label={t("itinerary.notes")} htmlFor="stop-notes" optional>
+          <Textarea id="stop-notes" rows={3} value={form.notes ?? ""}
+                    onChange={e => setForm(f => ({ ...f, notes: e.target.value || null }))}
+                    placeholder="Booking reference, opening hours, who's joining…" />
+        </Field>
 
-          {/* Actions */}
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose}
-                    className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-sm
-                               font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-                    style={{ fontFamily:"var(--font-body)" }}>
-              {t("common.cancel")}
-            </button>
-            <button type="submit" disabled={loading}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3
-                               rounded-xl text-sm font-semibold text-white itinerary-gradient
-                               disabled:opacity-60 hover:opacity-90 transition-all active:scale-95">
-              {loading && <Plane size={14} className="animate-plane-fly -rotate-45"/>}
-              {loading ? "Saving…" : t("common.save")}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <ModalActions>
+          <Button type="button" variant="ghost" onClick={onClose}>{t("common.cancel")}</Button>
+          <Button type="submit" loading={loading}>{t("common.save")}</Button>
+        </ModalActions>
+      </form>
+    </Modal>
   );
 }

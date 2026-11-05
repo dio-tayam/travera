@@ -1,128 +1,537 @@
 "use client";
 
-import { GoogleMap, Marker, Polyline, useJsApiLoader } from "@react-google-maps/api";
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import maplibregl, { type GeoJSONSource, type Map as MLMap, type Marker } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import {
+  Bike, Car, Clock, ExternalLink, Footprints, LocateFixed, MapPinOff, MapPinned, Maximize2, Navigation, Plus, X,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+import "@/lib/i18n";
 import type { Database } from "@/types/database";
-import { getStopTypeColor } from "@/lib/utils";
+import { STOP_META } from "@/lib/categories";
+import { cn, getStopTypeColor } from "@/lib/utils";
+import {
+  GEOFENCE_METERS, MAP_STYLE_URL, circleRing, formatDistance, formatTravelTime, googleMapsDirectionsTo,
+  googleMapsDirectionsUrl, haversine, openStreetMapUrl, reverseGeocode, routeBetween,
+  type LatLng, type Leg, type TravelMode,
+} from "@/lib/maps";
+import { MapPlaceholder } from "./map-placeholder";
 
 type Stop = Database["public"]["Tables"]["stops"]["Row"];
 
-const MAP_STYLES = [
-  { featureType: "poi", stylers: [{ visibility: "off" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#E8EAF0" }] },
-  { featureType: "water", stylers: [{ color: "#C8D8F5" }] },
-  { featureType: "landscape", stylers: [{ color: "#F5F5F0" }] },
-  { featureType: "transit", stylers: [{ visibility: "off" }] },
-  { featureType: "administrative", elementType: "geometry.stroke", stylers: [{ color: "#BDBDBD" }] },
-];
-
-const LIBRARIES: ("places" | "geometry")[] = ["places", "geometry"];
+/** A place picked on the map, ready to become a stop. */
+export type PlaceDraft = { title: string; address: string | null; lat: number; lng: number; placeId: string | null };
 
 interface TripMapProps {
+  /** The day's stops in order. Stops without coordinates keep their number but get no pin. */
   stops: Stop[];
-  center?: { lat: number; lng: number };
+  /** Controlled selection (pin ↔ list sync). Omit for internal selection. */
+  selectedId?: string | null;
+  onSelect?: (id: string | null) => void;
+  /** Receives travel legs keyed by the leg's starting stop id. */
+  onLegs?: (legs: Record<string, Leg>) => void;
+  /** Enables click-to-add: clicking the map offers to add that place as a stop. */
+  onAddPlace?: (place: PlaceDraft) => void;
 }
 
-function createPinSvg(number: number, color: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
-      <path d="M16 0C7.163 0 0 7.163 0 16c0 9 9 17 16 24 7-7 16-15 16-24C32 7.163 24.837 0 16 0z"
-        fill="${color}" stroke="white" stroke-width="2"/>
-      <text x="16" y="20" text-anchor="middle" font-size="12" font-family="sans-serif"
-        font-weight="bold" fill="white" dominant-baseline="middle">${number}</text>
-    </svg>
-  `)}`;
+const DEFAULT_CENTER: [number, number] = [120.9842, 14.5995]; // Manila (lng, lat)
+const MODES: { mode: TravelMode; icon: typeof Car; label: string }[] = [
+  { mode: "WALKING", icon: Footprints, label: "Walk" },
+  { mode: "CYCLING", icon: Bike, label: "Bike" },
+  { mode: "DRIVING", icon: Car, label: "Drive" },
+];
+const MODE_KEY = "travera:travel-mode";
+const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+
+function pinHtml(n: number, color: string) {
+  return `<svg width="30" height="38" viewBox="0 0 30 38" aria-hidden="true">
+    <path d="M15 1C7.3 1 1 7.2 1 14.8 1 24 15 37 15 37s14-13 14-22.2C29 7.2 22.7 1 15 1z" fill="${color}" stroke="#fff" stroke-width="2"/>
+    <circle class="pin-ring" cx="15" cy="14.8" r="12.5" fill="none" stroke="#16181d" stroke-width="2"/>
+    <text x="15" y="15.5" text-anchor="middle" dominant-baseline="middle" font-family="ui-monospace,monospace" font-size="11" font-weight="700" fill="#fff">${n}</text>
+  </svg>`;
 }
 
-export function TripMap({ stops, center }: TripMapProps) {
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "",
-    libraries: LIBRARIES,
-  });
+export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: TripMapProps) {
+  const { t } = useTranslation("common");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [map, setMap] = useState<MLMap | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [, setFrame] = useState(0); // re-render overlays when the camera moves
 
-  const [map, setMap] = useState<google.maps.Map | null>(null);
+  // selection: controlled when the parent passes selectedId, internal otherwise
+  const [ownSelected, setOwnSelected] = useState<string | null>(null);
+  const selected = selectedId !== undefined ? selectedId : ownSelected;
+  const selectRef = useRef<(id: string | null) => void>(() => {});
+  const select = useCallback((id: string | null) => { onSelect ? onSelect(id) : setOwnSelected(id); }, [onSelect]);
+  selectRef.current = select;
 
-  const onLoad = useCallback((m: google.maps.Map) => setMap(m), []);
-  const onUnmount = useCallback(() => setMap(null), []);
+  const [mode, setMode] = useState<TravelMode>("WALKING");
+  const [legs, setLegs] = useState<Record<string, Leg>>({});
+  const [pending, setPending] = useState<PlaceDraft | null>(null);
+  const [tracking, setTracking] = useState(false);
+  const [me, setMe] = useState<{ pos: LatLng; accuracy: number } | null>(null);
+  const [notice, setNotice] = useState<{ tone: "positive" | "negative"; text: string } | null>(null);
+  const arrivedAt = useRef(new Set<string>());
+  const centeredOnMe = useRef(false);
+  const markers = useRef(new Map<string, { marker: Marker; el: HTMLButtonElement }>());
+  const meMarker = useRef<Marker | null>(null);
+  const pendingMarker = useRef<Marker | null>(null);
+  const planeMarkers = useRef(new Map<string, Marker>());
+  const onLegsRef = useRef(onLegs);
+  onLegsRef.current = onLegs;
+  const onAddRef = useRef(onAddPlace);
+  onAddRef.current = onAddPlace;
 
-  const defaultCenter = useMemo(() => {
-    if (center) return center;
-    const withCoords = stops.filter((s) => s.lat && s.lng);
-    if (withCoords.length > 0) {
-      return {
-        lat: withCoords.reduce((a, s) => a + s.lat!, 0) / withCoords.length,
-        lng: withCoords.reduce((a, s) => a + s.lng!, 0) / withCoords.length,
-      };
-    }
-    return { lat: 14.5995, lng: 120.9842 }; // Manila default
-  }, [stops, center]);
+  useEffect(() => {
+    try { const m = localStorage.getItem(MODE_KEY) as TravelMode | null; if (m && MODES.some(x => x.mode === m)) setMode(m); } catch { /* ignore */ }
+  }, []);
+  function changeMode(m: TravelMode) {
+    setMode(m);
+    try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
+  }
 
-  const polylinePath = useMemo(
-    () =>
-      stops
-        .filter((s) => s.lat && s.lng)
-        .sort((a, b) => a.order_index - b.order_index)
-        .map((s) => ({ lat: s.lat!, lng: s.lng! })),
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(null), 7000);
+    return () => clearTimeout(id);
+  }, [notice]);
+
+  // Keep each stop's number from the full day list, even when some stops have no location.
+  const located = useMemo(
+    () => stops.map((s, i) => ({ stop: s, n: i + 1 })).filter(({ stop }) => stop.lat != null && stop.lng != null),
     [stops]
   );
+  const routeKey = located.map(({ stop }) => `${stop.id}@${stop.lat},${stop.lng}`).join("|");
 
-  if (!isLoaded) {
+  /* ── Create the map ─────────────────────────────────────────────────── */
+  useEffect(() => {
+    if (!containerRef.current) return;
+    let m: MLMap;
+    try {
+      m = new maplibregl.Map({
+        container: containerRef.current,
+        style: MAP_STYLE_URL,
+        center: DEFAULT_CENTER,
+        zoom: 11,
+        attributionControl: { compact: true },
+        dragRotate: false,
+        pitchWithRotate: false,
+      });
+    } catch {
+      // No WebGL (very old device, or hardware acceleration disabled) — show a fallback instead of crashing.
+      setFailed(true);
+      return;
+    }
+    m.touchZoomRotate.disableRotation();
+    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+
+    let raf = 0;
+    const rerender = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setFrame(f => f + 1)); };
+    m.on("move", rerender);
+    m.on("error", e => { if (!m.isStyleLoaded() && String(e.error?.message ?? "").match(/style|fetch/i)) setFailed(true); });
+
+    m.on("load", () => {
+      m.addSource("fences", { type: "geojson", data: EMPTY_FC });
+      m.addSource("accuracy", { type: "geojson", data: EMPTY_FC });
+      m.addSource("route", { type: "geojson", data: EMPTY_FC });
+      m.addLayer({ id: "fences-fill", type: "fill", source: "fences", paint: { "fill-color": "#d4552b", "fill-opacity": 0.07 } });
+      m.addLayer({ id: "fences-line", type: "line", source: "fences", paint: { "line-color": "#d4552b", "line-opacity": 0.4, "line-width": 1 } });
+      m.addLayer({ id: "accuracy-fill", type: "fill", source: "accuracy", paint: { "fill-color": "#2f6fed", "fill-opacity": 0.12 } });
+      m.addLayer({
+        id: "route-casing", type: "line", source: "route", filter: ["==", ["get", "style"], "solid"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#ffffff", "line-width": 7, "line-opacity": 0.9 },
+      });
+      m.addLayer({
+        id: "route-solid", type: "line", source: "route", filter: ["==", ["get", "style"], "solid"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": ["get", "color"], "line-width": 4 },
+      });
+      m.addLayer({
+        id: "route-flight", type: "line", source: "route", filter: ["==", ["get", "style"], "flight"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#d4552b", "line-width": 2.5, "line-dasharray": [2, 2] },
+      });
+      m.addLayer({
+        id: "route-dotted", type: "line", source: "route", filter: ["==", ["get", "style"], "dotted"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#16181d", "line-width": 4, "line-opacity": ["get", "opacity"], "line-dasharray": [0, 2] },
+      });
+      setMap(m);
+    });
+
+    m.on("click", e => {
+      selectRef.current(null);
+      if (!onAddRef.current) { setPending(null); return; }
+      const at = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+      setPending({ title: "Dropped pin", address: null, ...at, placeId: null });
+      reverseGeocode(at).then(p => {
+        if (!p) return;
+        setPending(cur => cur && cur.lat === at.lat && cur.lng === at.lng
+          ? { ...cur, title: p.title, address: p.address, placeId: p.placeId } : cur);
+      }).catch(() => { /* keep the dropped pin */ });
+    });
+
+    return () => { cancelAnimationFrame(raf); m.remove(); setMap(null); };
+  }, []);
+
+  useEffect(() => { map?.getCanvas().style.setProperty("cursor", onAddPlace ? "crosshair" : ""); }, [map, onAddPlace]);
+
+  /* ── Stop pins (DOM markers) ────────────────────────────────────────── */
+  useEffect(() => {
+    if (!map) return;
+    const live = new Set<string>();
+    located.forEach(({ stop, n }) => {
+      live.add(stop.id);
+      const color = getStopTypeColor(stop.type);
+      let entry = markers.current.get(stop.id);
+      if (!entry) {
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = "trip-pin";
+        el.addEventListener("click", ev => { ev.stopPropagation(); setPending(null); selectRef.current(el.dataset.selected === "1" ? null : stop.id); });
+        const marker = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([stop.lng!, stop.lat!]).addTo(map);
+        entry = { marker, el };
+        markers.current.set(stop.id, entry);
+      }
+      entry.marker.setLngLat([stop.lng!, stop.lat!]);
+      entry.el.innerHTML = `<span class="trip-pin-inner">${pinHtml(n, color)}</span>`;
+      entry.el.setAttribute("aria-label", `Stop ${n}: ${stop.title}`);
+      entry.el.title = stop.title;
+      entry.el.dataset.selected = stop.id === selected ? "1" : "0";
+      entry.el.style.zIndex = stop.id === selected ? "10" : String(n);
+    });
+    markers.current.forEach((v, id) => { if (!live.has(id)) { v.marker.remove(); markers.current.delete(id); } });
+  }, [map, located, selected]);
+
+  useEffect(() => () => {
+    markers.current.forEach(v => v.marker.remove()); markers.current.clear();
+    planeMarkers.current.forEach(mk => mk.remove()); planeMarkers.current.clear();
+  }, []);
+
+  /* ── Fit everything in view ─────────────────────────────────────────── */
+  const fitAll = useCallback(() => {
+    if (!map) return;
+    const pts: LatLng[] = located.map(({ stop }) => ({ lat: stop.lat!, lng: stop.lng! }));
+    if (me) pts.push(me.pos);
+    if (pts.length === 0) return;
+    if (pts.length === 1) { map.easeTo({ center: [pts[0].lng, pts[0].lat], zoom: 15, duration: 600 }); return; }
+    const b = new maplibregl.LngLatBounds();
+    pts.forEach(p => b.extend([p.lng, p.lat]));
+    map.fitBounds(b, { padding: { top: 80, right: 60, bottom: 84, left: 60 }, maxZoom: 16, duration: 700 });
+  }, [map, located, me]);
+
+  useEffect(() => { fitAll(); }, [map, routeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!map || !selected) return;
+    const hit = located.find(l => l.stop.id === selected);
+    if (hit) map.easeTo({ center: [hit.stop.lng!, hit.stop.lat!], duration: 500 });
+  }, [map, selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Routes between consecutive stops (OSRM) ────────────────────────── */
+  useEffect(() => {
+    if (located.length < 2) { setLegs({}); onLegsRef.current?.({}); return; }
+    const ctrl = new AbortController();
+    Promise.all(located.slice(1).map((b, i) => {
+      const a = located[i].stop;
+      return routeBetween(a.id, b.stop.id, { lat: a.lat!, lng: a.lng! }, { lat: b.stop.lat!, lng: b.stop.lng! }, mode, ctrl.signal);
+    })).then(list => {
+      const rec = Object.fromEntries(list.map(l => [l.fromId, l]));
+      setLegs(rec);
+      onLegsRef.current?.(rec);
+    }).catch(() => { /* aborted */ });
+    return () => ctrl.abort();
+  }, [routeKey, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const src = map?.getSource("route") as GeoJSONSource | undefined;
+    if (!src) return;
+    const features: GeoJSON.Feature[] = located.slice(1).map((b, i) => {
+      const a = located[i].stop;
+      const leg = legs[a.id];
+      const coords = (leg?.path ?? [{ lat: a.lat!, lng: a.lng! }, { lat: b.stop.lat!, lng: b.stop.lng! }]).map(p => [p.lng, p.lat]);
+      const style = leg?.kind === "flight" ? "flight" : !leg || leg.estimated || mode === "WALKING" ? "dotted" : "solid";
+      return {
+        type: "Feature", geometry: { type: "LineString", coordinates: coords },
+        properties: { style, opacity: leg?.estimated || !leg ? 0.45 : 0.9, color: mode === "CYCLING" ? "#2b7a78" : "#16181d" },
+      };
+    });
+    src.setData({ type: "FeatureCollection", features });
+
+    // Plane icons at the middle of each flight arc, pointing toward the destination.
+    const live = new Set<string>();
+    Object.values(legs).forEach(leg => {
+      if (leg.kind !== "flight" || !leg.path || leg.path.length < 3) return;
+      live.add(leg.fromId);
+      const mid = Math.floor(leg.path.length / 2);
+      const p0 = map!.project([leg.path[mid - 1].lng, leg.path[mid - 1].lat]);
+      const p1 = map!.project([leg.path[mid + 1].lng, leg.path[mid + 1].lat]);
+      const angle = (Math.atan2(p1.y - p0.y, p1.x - p0.x) * 180) / Math.PI;
+      let entry = planeMarkers.current.get(leg.fromId);
+      if (!entry) {
+        const el = document.createElement("div");
+        el.className = "trip-plane";
+        el.innerHTML = `<svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path fill="#d4552b" stroke="#fff" stroke-width="1.2" stroke-linejoin="round" d="M21 12.5 13.5 9V4.2a1.5 1.5 0 0 0-3 0V9L3 12.5v2l7.5-1.6V18L8.5 19.5V21l3.5-1 3.5 1v-1.5L13.5 18v-5.1L21 14.5z"/></svg>`;
+        entry = new maplibregl.Marker({ element: el, rotationAlignment: "viewport" }).setLngLat([leg.path[mid].lng, leg.path[mid].lat]).addTo(map!);
+        planeMarkers.current.set(leg.fromId, entry);
+      }
+      entry.setLngLat([leg.path[mid].lng, leg.path[mid].lat]);
+      // the icon points up (north); rotate it to follow the arc on screen
+      entry.setRotation(angle + 90);
+    });
+    planeMarkers.current.forEach((mk, id) => { if (!live.has(id)) { mk.remove(); planeMarkers.current.delete(id); } });
+  }, [map, legs, located, mode]);
+
+  /* ── Live location + geofencing ─────────────────────────────────────── */
+  useEffect(() => {
+    if (!tracking) { setMe(null); centeredOnMe.current = false; return; }
+    if (!("geolocation" in navigator)) {
+      setNotice({ tone: "negative", text: "Location isn't available in this browser." });
+      setTracking(false);
+      return;
+    }
+    const id = navigator.geolocation.watchPosition(
+      p => setMe({ pos: { lat: p.coords.latitude, lng: p.coords.longitude }, accuracy: p.coords.accuracy }),
+      err => {
+        setNotice({ tone: "negative", text: err.code === err.PERMISSION_DENIED
+          ? "Location access was blocked. Allow it in your browser settings to use live location."
+          : "Couldn't get your location. Try again outdoors or check your connection." });
+        setTracking(false);
+      },
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 }
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, [tracking]);
+
+  useEffect(() => {
+    if (!map) return;
+    (map.getSource("fences") as GeoJSONSource | undefined)?.setData(tracking ? {
+      type: "FeatureCollection",
+      features: located.map(({ stop }) => ({
+        type: "Feature", properties: {},
+        geometry: { type: "Polygon", coordinates: [circleRing({ lat: stop.lat!, lng: stop.lng! }, GEOFENCE_METERS)] },
+      })),
+    } : EMPTY_FC);
+  }, [map, tracking, located]);
+
+  useEffect(() => {
+    if (!map) return;
+    (map.getSource("accuracy") as GeoJSONSource | undefined)?.setData(me ? {
+      type: "FeatureCollection",
+      features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [circleRing(me.pos, me.accuracy)] } }],
+    } : EMPTY_FC);
+    if (me) {
+      if (!meMarker.current) {
+        const el = document.createElement("div");
+        el.className = "trip-me";
+        el.setAttribute("aria-label", "You are here");
+        meMarker.current = new maplibregl.Marker({ element: el }).setLngLat([me.pos.lng, me.pos.lat]).addTo(map);
+      } else meMarker.current.setLngLat([me.pos.lng, me.pos.lat]);
+      if (!centeredOnMe.current) { centeredOnMe.current = true; map.easeTo({ center: [me.pos.lng, me.pos.lat], duration: 600 }); }
+      for (const { stop } of located) {
+        if (haversine(me.pos, { lat: stop.lat!, lng: stop.lng! }) <= GEOFENCE_METERS && !arrivedAt.current.has(stop.id)) {
+          arrivedAt.current.add(stop.id);
+          setNotice({ tone: "positive", text: `You've arrived at ${stop.title}.` });
+          select(stop.id);
+          navigator.vibrate?.(80);
+          break;
+        }
+      }
+    } else {
+      meMarker.current?.remove();
+      meMarker.current = null;
+    }
+  }, [map, me]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Pending (click-to-add) marker ──────────────────────────────────── */
+  useEffect(() => {
+    if (!map) return;
+    if (!pending) { pendingMarker.current?.remove(); pendingMarker.current = null; return; }
+    if (!pendingMarker.current) {
+      const el = document.createElement("div");
+      el.className = "trip-pending";
+      pendingMarker.current = new maplibregl.Marker({ element: el }).setLngLat([pending.lng, pending.lat]).addTo(map);
+    } else pendingMarker.current.setLngLat([pending.lng, pending.lat]);
+  }, [map, pending]);
+
+  /* ── Derived ────────────────────────────────────────────────────────── */
+  const legList = Object.values(legs);
+  const totals = legList.reduce((a, l) => ({ s: a.s + l.seconds, m: a.m + l.meters }), { s: 0, m: 0 });
+  const anyEstimated = legList.some(l => l.estimated);
+  const flights = legList.filter(l => l.kind === "flight").length;
+  const selectedStop = located.find(l => l.stop.id === selected) ?? null;
+  const dayUrl = googleMapsDirectionsUrl(located.map(({ stop }) => ({ lat: stop.lat!, lng: stop.lng! })), mode);
+  const project = (p: LatLng) => map?.project([p.lng, p.lat]);
+
+  if (failed) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-xl">
-        <div className="text-sm text-gray-500" style={{ fontFamily: "var(--font-body)" }}>
-          Loading map…
+      <div className="grid h-full w-full place-items-center bg-sunken grid-texture p-6 text-center">
+        <div>
+          <MapPinOff size={20} className="mx-auto text-ink-3" />
+          <p className="mt-2 text-[13px] text-ink-2">The map couldn&apos;t be loaded.</p>
+          <p className="mt-1 text-[12px] text-ink-3">Check your connection, or turn on hardware acceleration in your browser settings.</p>
         </div>
       </div>
     );
   }
 
-  return (
-    <GoogleMap
-      mapContainerStyle={{ width: "100%", height: "100%" }}
-      center={defaultCenter}
-      zoom={13}
-      onLoad={onLoad}
-      onUnmount={onUnmount}
-      options={{
-        styles: MAP_STYLES,
-        disableDefaultUI: false,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: true,
-      }}
-    >
-      {stops
-        .filter((s) => s.lat && s.lng)
-        .map((stop, idx) => (
-          <Marker
-            key={stop.id}
-            position={{ lat: stop.lat!, lng: stop.lng! }}
-            icon={{
-              url: createPinSvg(idx + 1, getStopTypeColor(stop.type)),
-              scaledSize: new google.maps.Size(32, 40),
-              anchor: new google.maps.Point(16, 40),
-            }}
-            title={stop.title}
-          />
-        ))}
+  const selPos = selectedStop ? project({ lat: selectedStop.stop.lat!, lng: selectedStop.stop.lng! }) : null;
+  const pendPos = pending ? project(pending) : null;
 
-      {polylinePath.length > 1 && (
-        <Polyline
-          path={polylinePath}
-          options={{
-            strokeColor: "#0038A8",
-            strokeWeight: 3,
-            strokeOpacity: 0.7,
-            icons: [
-              {
-                icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 3 },
-                offset: "0",
-                repeat: "20px",
-              },
-            ],
-          }}
-        />
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      {/* MapLibre forces `position: relative` on its container, so size it explicitly. */}
+      <div ref={containerRef} className="h-full w-full" />
+      {!map && <div className="absolute inset-0"><MapPlaceholder /></div>}
+
+      {/* ── Anchored cards ──────────────────────────────────────────── */}
+      {map && selectedStop && selPos && (
+        <div className="absolute z-[5]" style={{ left: selPos.x, top: selPos.y, transform: "translate(-50%, calc(-100% - 60px))" }}>
+          <StopPopover stop={selectedStop.stop} n={selectedStop.n} mode={mode}
+                       distance={me ? haversine(me.pos, { lat: selectedStop.stop.lat!, lng: selectedStop.stop.lng! }) : null}
+                       onClose={() => select(null)} typeLabel={t(`itinerary.stopTypes.${selectedStop.stop.type}`)} />
+        </div>
       )}
-    </GoogleMap>
+      {map && pending && pendPos && (
+        <div className="absolute z-[5]" style={{ left: pendPos.x, top: pendPos.y, transform: "translate(-50%, calc(-100% - 18px))" }}>
+          <div className="w-[240px] rounded-[14px] border border-line bg-surface p-3.5 shadow-[0_18px_40px_-18px_rgb(22_24_29/0.45)]">
+            <div className="flex items-start gap-2">
+              <MapPinned size={15} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13.5px] font-semibold text-ink">{pending.title}</p>
+                <p className="mt-0.5 line-clamp-2 text-[12px] text-ink-3">{pending.address ?? "Looking up address…"}</p>
+              </div>
+              <button onClick={() => setPending(null)} aria-label="Dismiss" className="-mr-1 -mt-1 rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink">
+                <X size={14} />
+              </button>
+            </div>
+            <button onClick={() => { onAddPlace?.(pending); setPending(null); }}
+                    className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-[10px] bg-ink text-[13px] font-medium text-paper hover:bg-[#2a2d35]">
+              <Plus size={14} /> Add to this day
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toolbar ─────────────────────────────────────────────────── */}
+      <div className="pointer-events-none absolute right-3 top-3 z-[6] flex flex-wrap items-center justify-end gap-2">
+        {located.length >= 2 && (
+          <div role="radiogroup" aria-label="Travel mode"
+               className="pointer-events-auto flex rounded-[12px] border border-line bg-surface/95 p-1 shadow-[0_8px_24px_-14px_rgb(22_24_29/0.4)] backdrop-blur">
+            {MODES.map(({ mode: m, icon: Icon, label }) => (
+              <button key={m} role="radio" aria-checked={mode === m} onClick={() => changeMode(m)} title={label}
+                      className={cn("flex h-8 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-medium transition-colors",
+                                    mode === m ? "bg-ink text-paper" : "text-ink-2 hover:bg-sunken hover:text-ink")}>
+                <Icon size={14} aria-hidden="true" /><span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="pointer-events-auto flex rounded-[12px] border border-line bg-surface/95 p-1 shadow-[0_8px_24px_-14px_rgb(22_24_29/0.4)] backdrop-blur">
+          <ToolButton label={tracking ? "Stop live location" : "Show my location"} active={tracking} onClick={() => setTracking(v => !v)}>
+            <LocateFixed size={15} />
+          </ToolButton>
+          <ToolButton label="Fit all stops" onClick={fitAll} disabled={located.length === 0 && !me}>
+            <Maximize2 size={15} />
+          </ToolButton>
+          {located.length > 0 && (
+            <a href={dayUrl} target="_blank" rel="noopener noreferrer" title="Open day in Google Maps" aria-label="Open day in Google Maps"
+               className="grid h-8 w-8 place-items-center rounded-[8px] text-ink-2 transition-colors hover:bg-sunken hover:text-ink">
+              <ExternalLink size={15} />
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* ── Notices (arrival / errors) ──────────────────────────────── */}
+      {notice && (
+        <div role="status"
+             className={cn("animate-rise absolute left-1/2 top-16 z-[7] flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2.5 rounded-full border py-2 pl-3.5 pr-2 text-[12.5px] shadow-[0_12px_30px_-14px_rgb(22_24_29/0.45)]",
+                           notice.tone === "positive" ? "border-positive/30 bg-positive-soft text-positive" : "border-negative/30 bg-negative-soft text-negative")}>
+          <span className="truncate font-medium">{notice.text}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss" className="rounded-full p-1 hover:bg-black/5"><X size={13} /></button>
+        </div>
+      )}
+
+      {/* ── Day summary ─────────────────────────────────────────────── */}
+      <div className="pointer-events-none absolute bottom-3 left-3 z-[6] max-w-[calc(100%-7rem)]">
+        <div className="rounded-[12px] border border-line bg-surface/95 px-3 py-2 shadow-[0_8px_24px_-14px_rgb(22_24_29/0.4)] backdrop-blur">
+          {located.length === 0 ? (
+            <p className="text-[12px] text-ink-2">
+              {stops.length === 0 ? "No stops yet." : "None of today's stops have a location yet."}
+              {onAddPlace && <span className="text-ink-3"> Click the map to add a place.</span>}
+            </p>
+          ) : (
+            <>
+              <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink">
+                <Clock size={12} className="text-ink-3" aria-hidden="true" />
+                {legList.length > 0
+                  ? <>{anyEstimated && "≈ "}{formatTravelTime(totals.s)} · {formatDistance(totals.m)}</>
+                  : `${located.length} ${located.length === 1 ? "stop" : "stops"}`}
+              </p>
+              <p className="mt-0.5 text-[11px] text-ink-3">
+                {flights > 0 ? `incl. ${flights} ${flights === 1 ? "flight" : "flights"} · ` : ""}
+                {stops.length > located.length ? `${stops.length - located.length} without location · ` : ""}
+                {tracking && me ? `GPS ±${Math.round(me.accuracy)} m` : onAddPlace ? "Click the map to add a place" : `${located.length} stops on the map`}
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToolButton({ label, active, disabled, onClick, children }: {
+  label: string; active?: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <button onClick={onClick} disabled={disabled} title={label} aria-label={label} aria-pressed={active}
+            className={cn("grid h-8 w-8 place-items-center rounded-[8px] transition-colors disabled:opacity-40",
+                          active ? "bg-[#2f6fed] text-white" : "text-ink-2 hover:bg-sunken hover:text-ink")}>
+      {children}
+    </button>
+  );
+}
+
+function StopPopover({ stop, n, mode, distance, onClose, typeLabel }: {
+  stop: Stop; n: number; mode: TravelMode; distance: number | null; onClose: () => void; typeLabel: string;
+}) {
+  const meta = STOP_META[stop.type] ?? STOP_META.activity;
+  const Icon = meta.icon;
+  const at = { lat: stop.lat!, lng: stop.lng! };
+  return (
+    <div className="w-[260px] rounded-[14px] border border-line bg-surface p-3.5 shadow-[0_18px_40px_-18px_rgb(22_24_29/0.45)]">
+      <div className="flex items-start gap-2.5">
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full font-mono text-[11px] font-semibold text-white" style={{ background: meta.color }}>{n}</span>
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-1 text-[11px] font-medium" style={{ color: meta.color }}>
+            <Icon size={11} aria-hidden="true" /> {typeLabel}
+            {stop.start_time && <span className="font-mono text-ink-3">· {stop.start_time.slice(0, 5)}</span>}
+          </p>
+          <p className="mt-0.5 text-[14px] font-semibold leading-snug text-ink">{stop.title}</p>
+          {stop.address && <p className="mt-1 line-clamp-2 text-[12px] text-ink-3">{stop.address}</p>}
+          {distance != null && (
+            <p className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#2f6fed]/10 px-2 py-0.5 text-[11px] font-medium text-[#2f6fed]">
+              <Navigation size={10} aria-hidden="true" />
+              {distance <= GEOFENCE_METERS ? "You're here" : `${formatDistance(distance)} from you`}
+            </p>
+          )}
+        </div>
+        <button onClick={onClose} aria-label="Close" className="-mr-1 -mt-1 rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink"><X size={14} /></button>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <a href={googleMapsDirectionsTo(at, mode)} target="_blank" rel="noopener noreferrer"
+           className="flex h-8 items-center justify-center gap-1.5 rounded-[9px] bg-ink text-[12px] font-medium text-paper hover:bg-[#2a2d35]">
+          <Navigation size={12} /> Directions
+        </a>
+        <a href={openStreetMapUrl(at)} target="_blank" rel="noopener noreferrer"
+           className="flex h-8 items-center justify-center gap-1.5 rounded-[9px] border border-line-strong text-[12px] font-medium text-ink hover:bg-sunken">
+          <ExternalLink size={12} /> View on map
+        </a>
+      </div>
+    </div>
   );
 }

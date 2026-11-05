@@ -1,25 +1,31 @@
-import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, DM_Sans } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Bricolage_Grotesque, Onest, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const plusJakartaSans = Plus_Jakarta_Sans({
+const display = Bricolage_Grotesque({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "800"],
-  variable: "--font-plus-jakarta-sans",
+  axes: ["opsz"],
+  variable: "--font-bricolage",
   display: "swap",
 });
 
-const dmSans = DM_Sans({
+const sans = Onest({
+  subsets: ["latin"],
+  variable: "--font-onest",
+  display: "swap",
+});
+
+const mono = JetBrains_Mono({
   subsets: ["latin"],
   weight: ["400", "500"],
-  variable: "--font-dm-sans",
+  variable: "--font-jetbrains-mono",
   display: "swap",
 });
 
 export const metadata: Metadata = {
   title: {
     default: "Travera — Plan it. Share it. Live it.",
-    template: "%s | Travera",
+    template: "%s · Travera",
   },
   description: "Travera is your collaborative travel planning companion. Plan it. Share it. Live it.",
   icons: { icon: "/favicon.svg" },
@@ -31,14 +37,21 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export const viewport: Viewport = {
+  themeColor: "#f5f3ee",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${plusJakartaSans.variable} ${dmSans.variable}`}>
-      <body className="antialiased">{children}</body>
+    <html lang="en" className={`${display.variable} ${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+      <head>
+        {/* Flags that JS is running, so scroll-reveal styles never hide content when it isn't. */}
+        <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js')" }} />
+      </head>
+      <body>{children}</body>
     </html>
   );
 }

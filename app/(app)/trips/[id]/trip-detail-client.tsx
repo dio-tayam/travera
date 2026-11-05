@@ -1,236 +1,205 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import "@/lib/i18n";
-import { formatDateRange, formatCurrency } from "@/lib/utils";
-import { Calendar, MapPin, Users, Wallet, Share2, Lock, Unlock,
-         Map, Package, FileText, ChevronRight, Plane } from "lucide-react";
-import Link from "next/link";
-import type { Database } from "@/types/database";
-import { createClient } from "@/lib/supabase/client";
-import { useState } from "react";
 import { toast } from "sonner";
+import { ArrowRight, Check, Copy, Globe2, Lock } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { cn, formatCurrency, formatDateRange, tripLength } from "@/lib/utils";
+import { tripStatus } from "@/components/shared/trip-pass";
+import { tripNavItems } from "@/components/shared/nav-items";
+import { Button } from "@/components/ui/button";
+import { Avatar, Badge, Figure, PageBody, PageHeader, SectionTitle } from "@/components/ui/primitives";
+import type { Database } from "@/types/database";
 
-type Trip       = Database["public"]["Tables"]["trips"]["Row"];
-type Membership = { role: "owner" | "editor" | "viewer" };
-type Member     = {
+type Trip = Database["public"]["Tables"]["trips"]["Row"];
+type Member = {
   user_id: string; role: string;
   profiles: Database["public"]["Tables"]["profiles"]["Row"] | null;
 };
+interface Props { trip: Trip; membership: { role: "owner" | "editor" | "viewer" }; members: Member[] }
 
-interface Props { trip: Trip; membership: Membership; members: Member[] }
-
-const NAV_DESCRIPTIONS: Record<string, string> = {
-  itinerary: "Day-by-day stops",
-  budget:    "Track shared costs",
-  packing:   "Collaborative list",
-  documents: "Tickets & visas",
+const SECTION_COPY: Record<string, string> = {
+  itinerary: "Plan each day's stops and see them on the map.",
+  budget:    "Log shared costs and settle up fairly.",
+  packing:   "A checklist the whole group can work through.",
+  documents: "Tickets, bookings and visas in one place.",
 };
-
-const NAV_CARDS = [
-  { href: "itinerary", label: "Itinerary",  icon: Map,     color: "#6366f1", bg: "#eef2ff", grad: "itinerary-gradient" },
-  { href: "budget",    label: "Budget",     icon: Wallet,  color: "#f59e0b", bg: "#fffbeb", grad: "budget-gradient"    },
-  { href: "packing",   label: "Packing",    icon: Package, color: "#10b981", bg: "#ecfdf5", grad: "packing-gradient"   },
-  { href: "documents", label: "Documents",  icon: FileText,color: "#8b5cf6", bg: "#f5f3ff", grad: "docs-gradient"      },
-] as const;
 
 export function TripDetailClient({ trip, membership, members }: Props) {
   const { t } = useTranslation("common");
-  const supabase = createClient();
   const [isPublic, setIsPublic] = useState(trip.is_public);
-  const [sharing, setSharing]   = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [shareUrl, setShareUrl] = useState(`/share/${trip.share_token}`);
+
+  useEffect(() => { setShareUrl(`${window.location.origin}/share/${trip.share_token}`); }, [trip.share_token]);
+
+  const status = tripStatus(trip);
+  const days = tripLength(trip.start_date, trip.end_date);
+  const sections = tripNavItems(trip.id).slice(1);
 
   async function copyShareLink() {
-    const url = `${window.location.origin}/share/${trip.share_token}`;
-    await navigator.clipboard.writeText(url);
-    toast.success("Share link copied!");
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    toast.success("Link copied");
+    setTimeout(() => setCopied(false), 1800);
   }
 
   async function togglePublic() {
-    setSharing(true);
-    const { error } = await supabase.from("trips")
-      .update({ is_public: !isPublic }).eq("id", trip.id);
-    if (!error) {
+    setSaving(true);
+    const { error } = await createClient().from("trips").update({ is_public: !isPublic }).eq("id", trip.id);
+    if (error) toast.error("Couldn't update sharing");
+    else {
       setIsPublic(p => !p);
-      toast.success(!isPublic ? "Trip is now public" : "Trip set to private");
-    } else {
-      toast.error("Failed to update");
+      toast.success(!isPublic ? "Anyone with the link can now view this trip" : "Trip is private again");
     }
-    setSharing(false);
+    setSaving(false);
   }
 
   return (
-    <div className="h-full overflow-y-auto animate-fade-in" style={{ background: "var(--color-background)" }}>
+    <PageBody>
+      <PageHeader
+        eyebrow={<span suppressHydrationWarning className={cn(status.live && "text-positive")}>{status.label}</span>}
+        title={trip.title}
+        description={trip.destination ?? undefined}
+      />
 
-      {/* Cover */}
-      <div className="relative h-52 lg:h-60 overflow-hidden">
-        {trip.cover_image_url
-          ? <img src={trip.cover_image_url} alt={trip.title}
-                 className="w-full h-full object-cover"/>
-          : <div className="w-full h-full sky-gradient flex items-center justify-center">
-              <Plane size={72} className="text-white/15 -rotate-45" aria-hidden="true"/>
-            </div>}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/15 to-transparent"/>
-        <div className="absolute bottom-0 left-0 right-0 p-5 lg:p-7">
-          <h1 className="text-2xl lg:text-3xl font-bold text-white mb-1.5"
-              style={{ fontFamily: "var(--font-heading)" }}>{trip.title}</h1>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-white/80">
-            {trip.destination && (
-              <span className="flex items-center gap-1.5">
-                <MapPin size={13}/> {trip.destination}
-              </span>
-            )}
-            {trip.start_date && trip.end_date && (
-              <span className="flex items-center gap-1.5">
-                <Calendar size={13}/> {formatDateRange(trip.start_date, trip.end_date)}
-              </span>
-            )}
-            <span className="flex items-center gap-1.5">
-              <Users size={13}/> {members.length} {members.length === 1 ? "traveler" : "travelers"}
-            </span>
-          </div>
+      {trip.cover_image_url && (
+        <div className="mt-6 h-48 overflow-hidden rounded-[var(--radius-panel)] border border-line bg-sunken sm:h-64">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={trip.cover_image_url} alt="" className="h-full w-full object-cover" decoding="async" />
         </div>
+      )}
+
+      {/* Boarding-pass facts */}
+      <div className="panel mt-6 grid grid-cols-2 gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-4">
+        <Figure label={t("trip.destination")} value={trip.destination ?? "—"} />
+        <Figure label="Dates" value={trip.start_date && trip.end_date ? formatDateRange(trip.start_date, trip.end_date) : "Not set"} />
+        <Figure label="Length" value={days ? `${days} ${days === 1 ? "day" : "days"}` : "—"} />
+        <Figure label={t("trip.travelers")} value={members.length} />
       </div>
 
-      {/* Two-column body on desktop */}
-      <div className="grid lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)] gap-5
-                      px-4 lg:px-8 py-5 pb-8 items-start">
+      <div className="mt-10 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-10">
+          {/* Sections */}
+          <section aria-labelledby="plan-heading">
+            <SectionTitle><span id="plan-heading">Plan</span></SectionTitle>
+            <ul className="panel divide-y divide-line overflow-hidden">
+              {sections.map((s, i) => {
+                const key = s.href.split("/").pop()!;
+                const Icon = s.icon;
+                return (
+                  <li key={s.href}>
+                    <Link href={s.href} className="group flex items-center gap-4 px-5 py-4 transition-colors hover:bg-paper">
+                      <span className="font-mono text-[11px] text-ink-3">{String(i + 1).padStart(2, "0")}</span>
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line text-ink-2 transition-colors group-hover:border-ink group-hover:text-ink">
+                        <Icon size={16} aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[14px] font-medium text-ink">{t(s.labelKey)}</span>
+                        <span className="block truncate text-[12.5px] text-ink-3">{SECTION_COPY[key]}</span>
+                      </span>
+                      <ArrowRight size={16} aria-hidden="true"
+                                  className="text-ink-3 transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
 
-        {/* ── Left column ──────────────────────────────────────────── */}
-        <div className="space-y-4">
-
-          {/* Budget stat */}
-          {trip.total_budget && (
-            <div className="card p-4 flex items-center gap-4 rounded-2xl">
-              <div className="w-12 h-12 rounded-xl budget-gradient flex items-center justify-center shrink-0
-                              shadow-sm shadow-amber-200">
-                <Wallet size={20} className="text-white"/>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wide">Total budget</p>
-                <p className="text-2xl font-bold text-slate-900 leading-tight"
-                   style={{ fontFamily: "var(--font-heading)" }}>
-                  {formatCurrency(trip.total_budget, trip.currency)}
-                </p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wide">Per traveler</p>
-                <p className="text-base font-semibold text-slate-500 leading-tight"
-                   style={{ fontFamily: "var(--font-heading)" }}>
-                  {formatCurrency(trip.total_budget / Math.max(members.length, 1), trip.currency)}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Nav cards 2×2 grid */}
-          <div className="grid grid-cols-2 gap-3">
-            {NAV_CARDS.map(({ href, label, icon: Icon, color, bg }) => (
-              <Link key={href} href={`/trips/${trip.id}/${href}`}
-                    className="card card-hover flex items-center gap-3 p-4 group rounded-2xl">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0
-                                transition-transform duration-200 group-hover:scale-110"
-                     style={{ backgroundColor: bg }}>
-                  <Icon size={20} style={{ color }} aria-hidden="true"/>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm"
-                     style={{ fontFamily: "var(--font-heading)" }}>{label}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{NAV_DESCRIPTIONS[href]}</p>
-                </div>
-                <ChevronRight size={14} className="text-slate-300 group-hover:text-blue-400
-                                                   transition-colors shrink-0"/>
-              </Link>
-            ))}
-          </div>
-
-          {/* Share (owner only) */}
-          {membership.role === "owner" && (
-            <div className="card p-4 space-y-3 rounded-2xl">
-              <div className="flex items-start justify-between gap-3">
+          {/* Budget */}
+          {trip.total_budget != null && (
+            <section aria-labelledby="budget-heading">
+              <SectionTitle action={
+                <Link href={`/trips/${trip.id}/budget`} className="text-[13px] text-ink-2 underline-offset-4 hover:text-ink hover:underline">
+                  View expenses
+                </Link>
+              }><span id="budget-heading">{t("nav.budget")}</span></SectionTitle>
+              <div className="panel grid grid-cols-2 gap-6 px-5 py-5">
                 <div>
-                  <h3 className="font-bold text-sm text-slate-900"
-                      style={{ fontFamily: "var(--font-heading)" }}>
-                    Share this trip
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                    {isPublic ? t("trip.shareDesc_public") : t("trip.shareDesc_private")}
+                  <p className="eyebrow">{t("trip.totalBudget")}</p>
+                  <p className="display mt-2 text-[32px] text-ink tabular">{formatCurrency(trip.total_budget, trip.currency, { compact: true })}</p>
+                </div>
+                <div>
+                  <p className="eyebrow">{t("trip.perTraveler")}</p>
+                  <p className="display mt-2 text-[32px] text-ink-2 tabular">
+                    {formatCurrency(trip.total_budget / Math.max(members.length, 1), trip.currency, { compact: true })}
                   </p>
                 </div>
-                <span className="shrink-0 text-[11px] px-2.5 py-1 rounded-full font-semibold
-                                 flex items-center gap-1.5"
-                      style={isPublic
-                        ? { background: "#eff6ff", color: "#2563eb" }
-                        : { background: "#f8fafc", color: "#64748b" }}>
-                  {isPublic ? <Unlock size={10}/> : <Lock size={10}/>}
-                  {isPublic ? "Public" : "Private"}
-                </span>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <div className="flex-1 flex items-center px-3 py-2.5 rounded-xl border border-slate-200
-                                bg-slate-50 text-xs font-mono text-slate-500 overflow-hidden min-w-0">
-                  <span className="truncate">travera.app/share/{trip.share_token?.slice(0,12)}…</span>
+            </section>
+          )}
+
+          {/* Sharing */}
+          {membership.role === "owner" && (
+            <section aria-labelledby="share-heading">
+              <SectionTitle><span id="share-heading">{t("trip.shareTrip")}</span></SectionTitle>
+              <div className="panel px-5 py-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex gap-3">
+                    <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-full",
+                                        isPublic ? "bg-accent-soft text-accent-ink" : "bg-sunken text-ink-2")}>
+                      {isPublic ? <Globe2 size={16} /> : <Lock size={16} />}
+                    </span>
+                    <div>
+                      <p className="text-[14px] font-medium text-ink">{isPublic ? "Public link is on" : "Private trip"}</p>
+                      <p className="mt-0.5 text-[13px] text-ink-2">
+                        {isPublic ? t("trip.shareDesc_public") : t("trip.shareDesc_private")}
+                      </p>
+                    </div>
+                  </div>
+                  <Switch checked={isPublic} onChange={togglePublic} disabled={saving} label="Public link" />
                 </div>
-                <div className="flex gap-2 shrink-0">
-                  <button onClick={copyShareLink}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3
-                                     py-2.5 rounded-xl border border-slate-200 text-sm font-medium
-                                     text-slate-700 hover:bg-slate-50 hover:border-blue-200
-                                     transition-all active:scale-95">
-                    <Share2 size={14}/> {t("trip.copyLink")}
-                  </button>
-                  <button onClick={togglePublic} disabled={sharing}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3
-                                     py-2.5 rounded-xl border text-sm font-medium transition-all
-                                     active:scale-95"
-                          style={isPublic
-                            ? { borderColor:"#2563eb", color:"#2563eb", background:"#eff6ff" }
-                            : { borderColor:"#e2e8f0", color:"#64748b" }}>
-                    {isPublic ? t("trip.makePrivate") : t("trip.makePublic")}
-                  </button>
-                </div>
+
+                {isPublic && (
+                  <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                    <code className="flex h-10 min-w-0 flex-1 items-center truncate rounded-[var(--radius-control)] border border-line bg-paper px-3 font-mono text-[12px] text-ink-2">
+                      {shareUrl}
+                    </code>
+                    <Button variant="secondary" onClick={copyShareLink}>
+                      {copied ? <Check size={15} className="text-positive" /> : <Copy size={15} />}
+                      {copied ? "Copied" : t("trip.copyLink")}
+                    </Button>
+                  </div>
+                )}
               </div>
-            </div>
+            </section>
           )}
         </div>
 
-        {/* ── Right column: Travelers (sticky on desktop) ─────────── */}
-        <div className="lg:sticky lg:top-6">
-          <div className="card p-4 rounded-2xl">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-sm text-slate-900"
-                  style={{ fontFamily: "var(--font-heading)" }}>{t("trip.travelers")}</h3>
-              <span className="text-[11px] text-slate-400 font-medium">{members.length}</span>
-            </div>
-            <div className="space-y-3">
-              {members.map(m => (
-                <div key={m.user_id} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full sky-gradient flex items-center justify-center
-                                  text-white text-xs font-bold shrink-0">
-                    {(m.profiles?.display_name ?? "?")[0].toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate"
-                       style={{ fontFamily: "var(--font-heading)" }}>
-                      {m.profiles?.display_name ?? "Member"}
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      {(m.profiles?.display_name ?? "member").split(" ")[0].toLowerCase()}@travera.app
-                    </p>
-                  </div>
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold capitalize"
-                        style={{
-                          background: m.role==="owner" ? "#eff6ff" : "#f8fafc",
-                          color:      m.role==="owner" ? "#2563eb" : "#64748b",
-                        }}>
-                    {m.role}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        {/* Travelers */}
+        <aside className="lg:sticky lg:top-6" aria-labelledby="travelers-heading">
+          <SectionTitle meta={members.length}><span id="travelers-heading">{t("trip.travelers")}</span></SectionTitle>
+          <ul className="panel divide-y divide-line">
+            {members.map(m => (
+              <li key={m.user_id} className="flex items-center gap-3 px-4 py-3">
+                <Avatar name={m.profiles?.display_name} src={m.profiles?.avatar_url} size={34} />
+                <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-ink">
+                  {m.profiles?.display_name ?? "Traveler"}
+                </p>
+                <Badge tone={m.role === "owner" ? "accent" : "neutral"} className="capitalize">{m.role}</Badge>
+              </li>
+            ))}
+          </ul>
+        </aside>
       </div>
-    </div>
+    </PageBody>
+  );
+}
+
+function Switch({ checked, onChange, disabled, label }: {
+  checked: boolean; onChange: () => void; disabled?: boolean; label: string;
+}) {
+  return (
+    <button role="switch" aria-checked={checked} aria-label={label} onClick={onChange} disabled={disabled}
+            className={cn("relative h-6 w-10 shrink-0 rounded-full transition-colors disabled:opacity-50",
+                          checked ? "bg-ink" : "bg-line-strong")}>
+      <span className={cn("absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
+                          checked && "translate-x-4")} />
+    </button>
   );
 }

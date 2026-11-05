@@ -3,6 +3,19 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/types/database";
 
 export async function updateSession(request: NextRequest) {
+  // If Supabase falls back to the Site URL (e.g. "/" or "/dashboard?code=…") instead of our
+  // callback, forward the OAuth code to /auth/callback so the session is still created.
+  const code = request.nextUrl.searchParams.get("code");
+  if (code && request.nextUrl.pathname !== "/auth/callback") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/auth/callback";
+    url.search = "";
+    url.searchParams.set("code", code);
+    const next = request.nextUrl.pathname;
+    url.searchParams.set("next", next === "/" || next === "/login" ? "/dashboard" : next);
+    return NextResponse.redirect(url);
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient<Database>(

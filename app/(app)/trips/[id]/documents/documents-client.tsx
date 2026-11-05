@@ -1,306 +1,473 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import * as Menu from "@radix-ui/react-dropdown-menu";
 import { useTranslation } from "react-i18next";
 import "@/lib/i18n";
-import { createClient } from "@/lib/supabase/client";
-import type { Database } from "@/types/database";
-import { CloudUpload, FileText, Plane, Hotel, Globe, Trash2,
-         ExternalLink, Loader2, AlertTriangle, ImageIcon } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertTriangle, Check, CheckCircle2, Download, ExternalLink, Eye, FileText, Loader2, MoreHorizontal, Pencil,
+  Plus, Search, Tag, Trash2, UploadCloud, X,
+} from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { DOC_META, DOC_TYPES } from "@/lib/categories";
+import { Button } from "@/components/ui/button";
+import { Input, Select } from "@/components/ui/field";
+import { Modal, ModalActions } from "@/components/ui/modal";
+import { Avatar, EmptyState, PageBody, PageHeader } from "@/components/ui/primitives";
+import type { Database } from "@/types/database";
 
 type Trip = Database["public"]["Tables"]["trips"]["Row"];
-type Doc  = Database["public"]["Tables"]["documents"]["Row"];
+type Doc = Database["public"]["Tables"]["documents"]["Row"];
+type DocType = Doc["type"];
+type Member = { user_id: string; role: string; profiles: Database["public"]["Tables"]["profiles"]["Row"] | null };
 
-const TYPE_ICON: Record<string, React.ElementType> = {
-  flight: Plane, hotel: Hotel, visa: Globe, other: FileText,
-};
-const TYPE_COLOR: Record<string, { text: string; bg: string; border: string }> = {
-  flight:  { text: "#2563eb", bg: "#eff6ff", border: "#bfdbfe" },
-  hotel:   { text: "#f59e0b", bg: "#fffbeb", border: "#fde68a" },
-  visa:    { text: "#8b5cf6", bg: "#f5f3ff", border: "#ddd6fe" },
-  other:   { text: "#64748b", bg: "#f8fafc", border: "#e2e8f0" },
-};
+const BUCKET = "trip-documents";
+const MAX_BYTES = 10 * 1024 * 1024;
+const isImage = (name: string) => /\.(jpe?g|png|gif|webp)$/i.test(name);
+const isPdf = (name: string) => /\.pdf$/i.test(name);
+const extOf = (name: string) => name.split(".").pop()?.toUpperCase().slice(0, 4) ?? "FILE";
+/** Upload time, recovered from the `<timestamp>_name` storage path (documents have no created_at column). */
+const uploadedAt = (d: Doc) => Number(/\/(\d{10,})_/.exec(d.storage_path)?.[1] ?? 0);
+const shortDate = (ms: number) => ms ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(ms)) : "";
 
-function isImage(name: string) {
-  return /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
-}
+/** Documents most trips need, mapped to the stored type. */
+const ESSENTIALS: { type: DocType; label: string; hint: string }[] = [
+  { type: "flight", label: "Flight tickets", hint: "Boarding passes or e-tickets" },
+  { type: "hotel", label: "Accommodation", hint: "Hotel or rental confirmations" },
+  { type: "visa", label: "Visa & entry", hint: "Visa, e-visa or entry forms" },
+];
 
-interface Props { trip: Trip; initialDocs: Doc[]; userId: string; canEdit: boolean }
+type UploadJob = { id: string; name: string; status: "uploading" | "done" | "error"; error?: string };
 
-export function DocumentsClient({ trip, initialDocs, userId, canEdit }: Props) {
+interface Props { trip: Trip; initialDocs: Doc[]; members: Member[]; userId: string; canEdit: boolean }
+
+export function DocumentsClient({ trip, initialDocs, members, userId, canEdit }: Props) {
   const { t } = useTranslation("common");
-  const supabase = createClient();
-  const [docs, setDocs]           = useState(initialDocs);
-  const [uploading, setUpl]       = useState(false);
-  const [dragOver, setDrag]       = useState(false);
-  const [docType, setDocType]     = useState<Doc["type"]>("other");
-  const [bucketOk, setBucketOk]   = useState<boolean | null>(null);
-  const [previews, setPreviews]   = useState<Record<string, string>>({});
-  const [localPreview, setLocal]  = useState<{ url: string; name: string } | null>(null);
+  const supabase = useMemo(() => createClient(), []);
+  const [docs, setDocs] = useState(initialDocs);
+  const [jobs, setJobs] = useState<UploadJob[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [docType, setDocType] = useState<DocType>("other");
+  const [filter, setFilter] = useState<DocType | "all">("all");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<"newest" | "name" | "type">("newest");
+  const [bucketOk, setBucketOk] = useState<boolean | null>(null);
+  const [previews, setPreviews] = useState<Record<string, string>>({});
+  const [viewing, setViewing] = useState<Doc | null>(null);
+  const [renaming, setRenaming] = useState<Doc | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useState(() => {
-    supabase.storage.from("trip-documents").list("", { limit: 1 })
-      .then(({ error }) => setBucketOk(!error));
-  });
-
-  // Fetch signed URLs for image docs
   useEffect(() => {
-    const imgDocs = docs.filter(d => isImage(d.file_name));
-    if (imgDocs.length === 0) return;
-    supabase.storage
-      .from("trip-documents")
-      .createSignedUrls(imgDocs.map(d => d.storage_path), 3600)
-      .then(({ data }) => {
-        if (!data) return;
-        const map: Record<string, string> = {};
-        data.forEach((item, i) => {
-          if (item.signedUrl) map[imgDocs[i].id] = item.signedUrl;
-        });
-        setPreviews(prev => ({ ...prev, ...map }));
-      });
-  }, [docs.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!canEdit) return;
+    supabase.storage.from(BUCKET).list("", { limit: 1 }).then(({ error }) => setBucketOk(!error));
+  }, [canEdit, supabase]);
 
-  async function handleFiles(files: FileList | null) {
-    if (!files?.length) return;
-    const file = files[0];
-    if (file.size > 10 * 1024 * 1024) { toast.error("Max file size is 10MB"); return; }
+  // Signed URLs for image thumbnails (only ones we don't have yet)
+  useEffect(() => {
+    const missing = docs.filter(d => isImage(d.file_name) && !previews[d.id]);
+    if (!missing.length) return;
+    supabase.storage.from(BUCKET).createSignedUrls(missing.map(d => d.storage_path), 3600).then(({ data }) => {
+      if (!data) return;
+      const map: Record<string, string> = {};
+      data.forEach((item, i) => { if (item.signedUrl) map[missing[i].id] = item.signedUrl; });
+      setPreviews(prev => ({ ...prev, ...map }));
+    });
+  }, [docs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Show local preview while uploading
-    if (isImage(file.name)) {
-      const url = URL.createObjectURL(file);
-      setLocal({ url, name: file.name });
+  const member = (uid: string) => members.find(m => m.user_id === uid);
+  const nameOf = (uid: string) => uid === userId ? "You" : member(uid)?.profiles?.display_name?.split(" ")[0] ?? "Traveler";
+
+  /* ── Upload (multiple files, sequential) ────────────────────────────── */
+  async function handleFiles(list: FileList | File[] | null, type: DocType = docType) {
+    const files = Array.from(list ?? []);
+    if (!files.length) return;
+    const queued: UploadJob[] = files.map(f => ({ id: `${f.name}-${f.size}-${Math.random()}`, name: f.name, status: "uploading" }));
+    setJobs(j => [...queued, ...j]);
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i], job = queued[i];
+      const fail = (msg: string) => setJobs(j => j.map(x => x.id === job.id ? { ...x, status: "error", error: msg } : x));
+      if (file.size > MAX_BYTES) { fail("Larger than 10 MB"); continue; }
+      try {
+        const safe = file.name.replace(/[^\w.\-() ]+/g, "_");
+        const path = `${trip.id}/${userId}/${Date.now()}_${safe}`;
+        const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
+        if (upErr) throw upErr;
+        const { data: doc, error: dbErr } = await supabase.from("documents").insert({
+          trip_id: trip.id, uploaded_by: userId, file_name: file.name, storage_path: path, type,
+        }).select().single();
+        if (dbErr) throw dbErr;
+        if (isImage(file.name)) setPreviews(p => ({ ...p, [doc.id]: URL.createObjectURL(file) }));
+        setDocs(p => [doc, ...p]);
+        setJobs(j => j.map(x => x.id === job.id ? { ...x, status: "done" } : x));
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Upload failed";
+        fail(/bucket|not found/i.test(msg) ? "Storage isn't set up yet" : msg);
+      }
     }
-
-    setUpl(true);
-    try {
-      const path = `${trip.id}/${userId}/${Date.now()}_${file.name}`;
-      const { error: upErr } = await supabase.storage
-        .from("trip-documents").upload(path, file, { upsert: false });
-      if (upErr) throw upErr;
-
-      const { data: doc, error: dbErr } = await supabase.from("documents").insert({
-        trip_id: trip.id, uploaded_by: userId,
-        file_name: file.name, storage_path: path, type: docType,
-      }).select().single();
-      if (dbErr) throw dbErr;
-
-      setDocs(p => [doc, ...p]);
-      setLocal(null);
-      toast.success("Document uploaded!");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Upload failed";
-      const isBucketMissing = msg.toLowerCase().includes("bucket") ||
-        msg.toLowerCase().includes("not found") ||
-        msg.toLowerCase().includes("object");
-      toast.error(
-        isBucketMissing
-          ? "Storage not set up. Run supabase/setup-storage.sql in your Supabase SQL Editor."
-          : msg,
-        { duration: 6000 }
-      );
-      setLocal(null);
-    } finally {
-      setUpl(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
+    if (fileRef.current) fileRef.current.value = "";
+    // Clear finished jobs after a moment; keep errors visible until dismissed.
+    setTimeout(() => setJobs(j => j.filter(x => x.status !== "done")), 2500);
   }
 
-  async function viewDoc(doc: Doc) {
-    const { data, error } = await supabase.storage
-      .from("trip-documents").createSignedUrl(doc.storage_path, 3600);
-    if (error) { toast.error("Could not open file"); return; }
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  function pickFiles(type?: DocType) {
+    if (type) setDocType(type);
+    fileRef.current?.click();
+  }
+
+  async function signedUrl(doc: Doc, download = false) {
+    const { data, error } = await supabase.storage.from(BUCKET)
+      .createSignedUrl(doc.storage_path, 3600, download ? { download: doc.file_name } : undefined);
+    if (error || !data) { toast.error("Couldn't open the file"); return null; }
+    return data.signedUrl;
+  }
+
+  async function download(doc: Doc) {
+    const url = await signedUrl(doc, true);
+    if (url) window.location.href = url;
   }
 
   async function deleteDoc(doc: Doc) {
-    await supabase.storage.from("trip-documents").remove([doc.storage_path]);
-    await supabase.from("documents").delete().eq("id", doc.id);
+    const prev = docs;
     setDocs(p => p.filter(d => d.id !== doc.id));
-    toast.success("Document deleted");
+    if (viewing?.id === doc.id) setViewing(null);
+    await supabase.storage.from(BUCKET).remove([doc.storage_path]);
+    const { error } = await supabase.from("documents").delete().eq("id", doc.id);
+    if (error) { setDocs(prev); toast.error("Couldn't delete the file"); return; }
+    toast.success("Deleted");
   }
 
-  return (
-    <div className="h-full overflow-y-auto animate-fade-in" style={{ background: "var(--color-background)" }}>
+  async function updateDoc(doc: Doc, change: Partial<Pick<Doc, "file_name" | "type">>) {
+    const prev = docs;
+    setDocs(p => p.map(d => d.id === doc.id ? { ...d, ...change } : d));
+    const { error } = await supabase.from("documents").update(change).eq("id", doc.id);
+    if (error) { setDocs(prev); toast.error("Couldn't update the file"); }
+  }
 
-      {/* Storage warning */}
-      {bucketOk === false && (
-        <div className="mx-4 lg:mx-8 mt-4 flex gap-3 items-start bg-amber-50 border border-amber-200
-                        rounded-2xl p-4 text-sm">
-          <AlertTriangle size={17} className="text-amber-500 shrink-0 mt-0.5"/>
-          <div>
-            <p className="font-semibold text-amber-800 mb-0.5">Storage bucket not set up</p>
-            <p className="text-amber-700 text-xs leading-relaxed">
-              Run <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-amber-800">
-                supabase/setup-storage.sql
-              </code> in your <strong>Supabase SQL Editor</strong> to enable uploads.
-            </p>
-          </div>
+  /* ── Derived ────────────────────────────────────────────────────────── */
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: docs.length };
+    docs.forEach(d => { c[d.type] = (c[d.type] ?? 0) + 1; });
+    return c;
+  }, [docs]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = docs.filter(d => (filter === "all" || d.type === filter) && (!q || d.file_name.toLowerCase().includes(q)));
+    return [...list].sort((a, b) =>
+      sort === "name" ? a.file_name.localeCompare(b.file_name)
+      : sort === "type" ? a.type.localeCompare(b.type) || uploadedAt(b) - uploadedAt(a)
+      : uploadedAt(b) - uploadedAt(a));
+  }, [docs, filter, query, sort]);
+
+  const busy = jobs.some(j => j.status === "uploading");
+
+  return (
+    <PageBody>
+      <PageHeader eyebrow={t("nav.docs")} title={t("documents.title")}
+                  description="Keep tickets, reservations and visas where the whole group can reach them."
+                  actions={canEdit && <Button onClick={() => pickFiles()} loading={busy}><UploadCloud size={16} aria-hidden="true" /> Upload</Button>} />
+
+      {canEdit && bucketOk === false && (
+        <div className="mt-6 flex gap-3 rounded-[var(--radius-panel)] border border-warning/30 bg-warning-soft px-4 py-3.5" role="status">
+          <AlertTriangle size={17} className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+          <p className="text-[13px] text-ink-2">
+            <span className="font-medium text-ink">File storage isn&apos;t set up.</span>{" "}
+            Run <code className="rounded bg-surface px-1 py-0.5 font-mono text-[12px]">supabase/setup-storage.sql</code> in the Supabase SQL editor to enable uploads.
+          </p>
         </div>
       )}
 
-      {/* Header */}
-      <div className="px-4 lg:px-8 pt-6 pb-4">
-        <h1 className="text-xl font-bold text-slate-900" style={{ fontFamily:"var(--font-heading)" }}>
-          {t("documents.title")}
-        </h1>
-        <p className="text-sm text-slate-400 mt-0.5">{trip.title}</p>
+      {/* Essentials checklist */}
+      <div className="mt-8 grid gap-3 sm:grid-cols-3">
+        {ESSENTIALS.map(e => {
+          const have = counts[e.type] ?? 0;
+          const { icon: Icon, color } = DOC_META[e.type];
+          return (
+            <div key={e.type} className={cn("panel flex items-center gap-3 px-4 py-3.5", have > 0 && "border-positive/30")}>
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full" style={{ background: `${color}14`, color }}>
+                <Icon size={16} aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13.5px] font-medium text-ink">{e.label}</p>
+                <p className="truncate text-[12px] text-ink-3">{have > 0 ? `${have} ${have === 1 ? "file" : "files"}` : e.hint}</p>
+              </div>
+              {have > 0
+                ? <CheckCircle2 size={18} className="shrink-0 text-positive" aria-label="Added" />
+                : canEdit && (
+                  <button onClick={() => pickFiles(e.type)} aria-label={`Upload ${e.label}`}
+                          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-line-strong text-ink-3 transition-colors hover:border-ink hover:text-ink">
+                    <Plus size={15} />
+                  </button>
+                )}
+            </div>
+          );
+        })}
       </div>
 
-      {/* Two-column layout */}
-      <div className={cn(
-        "px-4 lg:px-8 grid gap-6 items-start pb-8",
-        canEdit ? "lg:grid-cols-[360px_1fr]" : ""
-      )}>
-
-        {/* ── Column 1: Upload ──────────────────────────────────── */}
-        {canEdit && (
-          <div className="space-y-3 lg:sticky lg:top-6">
-            {/* Type selector card */}
-            <div className="card p-4 rounded-2xl space-y-3">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{t("documents.docType")}</p>
-              <div className="grid grid-cols-2 gap-2">
-                {(["flight","hotel","visa","other"] as Doc["type"][]).map(type => {
-                  const Icon  = TYPE_ICON[type];
-                  const style = TYPE_COLOR[type];
-                  return (
-                    <button key={type} onClick={() => setDocType(type)}
-                            className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm
-                                       font-semibold border transition-all active:scale-95"
-                            style={docType === type
-                              ? { background: style.bg, color: style.text, borderColor: style.text }
-                              : { borderColor: "#e2e8f0", color: "#64748b", background: "white" }}>
-                      <Icon size={14}/> {t(`documents.types.${type}`)}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Dropzone */}
-            <div onDragOver={e => { e.preventDefault(); setDrag(true); }}
-                 onDragLeave={() => setDrag(false)}
-                 onDrop={e => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files); }}
-                 onClick={() => fileRef.current?.click()}
-                 className={cn(
-                   "card border-2 border-dashed rounded-2xl cursor-pointer transition-all",
-                   "flex flex-col items-center justify-center text-center",
-                   localPreview ? "p-4" : "p-10",
-                   dragOver
-                     ? "border-purple-400 bg-purple-50"
-                     : "border-slate-200 hover:border-purple-300 hover:bg-slate-50/70"
-                 )}
-                 role="button" tabIndex={0} aria-label={t("documents.upload")}
-                 onKeyDown={e => { if (e.key === "Enter") fileRef.current?.click(); }}>
-
-              {localPreview ? (
-                /* Preview of locally selected image */
-                <div className="w-full space-y-3" onClick={e => e.stopPropagation()}>
-                  <img src={localPreview.url} alt={localPreview.name}
-                       className="w-full h-40 object-cover rounded-xl border border-slate-100"/>
-                  <p className="text-xs text-slate-500 truncate text-center">{localPreview.name}</p>
-                  {uploading && (
-                    <div className="flex items-center justify-center gap-2 text-sm text-purple-600 font-medium">
-                      <Loader2 size={14} className="animate-spin"/> Uploading…
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <>
-                  {uploading
-                    ? <Loader2 size={32} className="animate-spin text-purple-400 mb-3"/>
-                    : <CloudUpload size={32}
-                        className={cn("mb-3 transition-colors", dragOver ? "text-purple-500" : "text-slate-300")}/>}
-                  <p className="text-sm font-medium text-slate-600">
-                    {uploading ? "Uploading…" : t("documents.dropzone")}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {t("documents.maxSize")} · PDF, JPG, PNG
-                  </p>
-                </>
-              )}
-            </div>
-
-            <input ref={fileRef} type="file" className="hidden"
-                   accept=".pdf,.jpg,.jpeg,.png,.gif,.webp"
-                   onChange={e => handleFiles(e.target.files)} aria-label="Upload file"/>
-          </div>
-        )}
-
-        {/* ── Column 2: Documents list / preview ───────────────── */}
-        <div>
-          {docs.length === 0 ? (
-            <div className="card p-12 text-center rounded-2xl">
-              <FileText size={38} className="mx-auto text-slate-200 mb-3" aria-hidden="true"/>
-              <p className="text-sm text-slate-400">
-                {t("documents.noDocuments")}{canEdit ? t("documents.uploadPrompt") : ""}
-              </p>
-            </div>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-3">
-              {docs.map(doc => {
-                const Icon      = TYPE_ICON[doc.type] ?? FileText;
-                const style     = TYPE_COLOR[doc.type] ?? TYPE_COLOR.other;
-                const imgPreview = previews[doc.id];
+      {/* Upload */}
+      {canEdit && (
+        <div className="panel mt-4 overflow-hidden">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3 sm:px-5">
+            <p className="text-[13px] font-medium text-ink">Save new files as</p>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("documents.docType")}>
+              {DOC_TYPES.map(type => {
+                const { icon: Icon } = DOC_META[type];
+                const active = docType === type;
                 return (
-                  <div key={doc.id}
-                       className="card overflow-hidden rounded-2xl hover:shadow-md transition-shadow duration-200 group">
-                    {/* Image thumbnail or icon banner */}
-                    {imgPreview ? (
-                      <div className="relative h-36 bg-slate-100 overflow-hidden">
-                        <img src={imgPreview} alt={doc.file_name}
-                             className="w-full h-full object-cover transition-transform duration-500
-                                        group-hover:scale-105"/>
-                        <div className="absolute inset-0 bg-linear-to-t from-black/40 to-transparent"/>
-                        <span className="absolute top-2 left-2 flex items-center gap-1.5 text-[11px]
-                                         px-2 py-0.5 rounded-full font-semibold"
-                              style={{ background: style.bg, color: style.text }}>
-                          <Icon size={10}/> {t(`documents.types.${doc.type}`)}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="h-24 flex items-center justify-center"
-                           style={{ backgroundColor: style.bg }}>
-                        {isImage(doc.file_name)
-                          ? <ImageIcon size={32} style={{ color: style.text }} className="opacity-40"/>
-                          : <Icon size={32} style={{ color: style.text }} className="opacity-40"/>}
-                      </div>
-                    )}
-
-                    {/* Info */}
-                    <div className="p-3.5">
-                      <p className="text-sm font-semibold text-slate-800 truncate mb-0.5">{doc.file_name}</p>
-                      <p className="text-xs text-slate-400 capitalize mb-3">
-                        {t(`documents.types.${doc.type}`)}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => viewDoc(doc)}
-                                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5
-                                           rounded-xl text-xs font-semibold border border-slate-200
-                                           text-slate-600 hover:bg-slate-50 hover:border-blue-200
-                                           hover:text-blue-600 transition-all active:scale-95"
-                                aria-label={`View ${doc.file_name}`}>
-                          <ExternalLink size={11}/> {t("documents.view")}
-                        </button>
-                        {canEdit && doc.uploaded_by === userId && (
-                          <button onClick={() => deleteDoc(doc)}
-                                  className="p-1.5 rounded-lg text-slate-300 hover:text-red-400
-                                             hover:bg-red-50 transition-all"
-                                  aria-label={`Delete ${doc.file_name}`}>
-                            <Trash2 size={14}/>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <button key={type} role="radio" aria-checked={active} onClick={() => setDocType(type)}
+                          className={cn("flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12.5px] transition-colors",
+                                        active ? "border-ink bg-ink text-paper" : "border-line-strong text-ink-2 hover:bg-sunken")}>
+                    <Icon size={13} aria-hidden="true" /> {t(`documents.types.${type}`)}
+                  </button>
                 );
               })}
             </div>
+          </div>
+          <div
+            role="button" tabIndex={0} aria-label={t("documents.upload")}
+            onClick={() => pickFiles()}
+            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pickFiles(); } }}
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
+            className={cn("m-3 flex flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed px-6 py-8 text-center transition-colors sm:flex-row sm:gap-4 sm:text-left",
+                          dragOver ? "border-accent bg-accent-soft" : "border-line-strong hover:border-ink hover:bg-paper")}>
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line bg-surface text-ink-2">
+              {busy ? <Loader2 size={18} className="animate-spin" /> : <UploadCloud size={18} />}
+            </span>
+            <div>
+              <p className="text-[14px] font-medium text-ink">Drop files here or click to choose — several at once is fine</p>
+              <p className="mt-0.5 text-[12.5px] text-ink-3">PDF, JPG, PNG or WebP · {t("documents.maxSize")}</p>
+            </div>
+          </div>
+          {jobs.length > 0 && (
+            <ul className="space-y-1 border-t border-line px-4 py-3 sm:px-5" aria-live="polite">
+              {jobs.map(j => (
+                <li key={j.id} className="flex items-center gap-2.5 text-[12.5px]">
+                  {j.status === "uploading" && <Loader2 size={14} className="animate-spin text-ink-3" />}
+                  {j.status === "done" && <Check size={14} className="text-positive" />}
+                  {j.status === "error" && <AlertTriangle size={14} className="text-negative" />}
+                  <span className="min-w-0 flex-1 truncate text-ink">{j.name}</span>
+                  {j.status === "error" && <span className="text-negative">{j.error}</span>}
+                  {j.status === "error" && (
+                    <button onClick={() => setJobs(x => x.filter(y => y.id !== j.id))} aria-label="Dismiss" className="rounded p-0.5 text-ink-3 hover:text-ink"><X size={13} /></button>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
+          <input ref={fileRef} type="file" multiple className="hidden" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp"
+                 onChange={e => handleFiles(e.target.files)} aria-hidden="true" tabIndex={-1} />
         </div>
+      )}
+
+      {/* Library */}
+      <section className="mt-10" aria-label="Files">
+        {docs.length > 0 && (
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="flex gap-1.5 overflow-x-auto scrollbar-none" role="tablist" aria-label="Filter by type">
+              {(["all", ...DOC_TYPES] as const).map(type => (
+                <button key={type} role="tab" aria-selected={filter === type} onClick={() => setFilter(type)}
+                        className={cn("flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-[12.5px] transition-colors",
+                                      filter === type ? "bg-ink text-paper" : "text-ink-2 hover:bg-sunken hover:text-ink")}>
+                  {type === "all" ? "All" : t(`documents.types.${type}`)}
+                  <span className={cn("font-mono text-[11px]", filter === type ? "text-paper/60" : "text-ink-3")}>{counts[type] ?? 0}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2 lg:ml-auto">
+              <div className="relative flex-1 lg:w-56">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden="true" />
+                <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search files" className="h-9 pl-8" aria-label="Search files" />
+              </div>
+              <div className="w-36">
+                <Select value={sort} onChange={e => setSort(e.target.value as typeof sort)} className="h-9" aria-label="Sort files">
+                  <option value="newest">Newest first</option>
+                  <option value="name">Name A–Z</option>
+                  <option value="type">By type</option>
+                </Select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {docs.length === 0 ? (
+          <EmptyState icon={FileText} title={t("documents.noDocuments")}
+                      description={canEdit ? "Upload boarding passes, hotel confirmations or visas to share them with everyone on the trip." : undefined} />
+        ) : visible.length === 0 ? (
+          <p className="panel px-5 py-8 text-center text-[13px] text-ink-3">No files match.</p>
+        ) : (
+          <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {visible.map(doc => {
+              const meta = DOC_META[doc.type] ?? DOC_META.other;
+              const Icon = meta.icon;
+              const preview = previews[doc.id];
+              const uploader = member(doc.uploaded_by);
+              const mineOrEditor = canEdit;
+              return (
+                <li key={doc.id} className="panel group flex flex-col overflow-hidden">
+                  <button onClick={() => setViewing(doc)} aria-label={`Preview ${doc.file_name}`}
+                          className="relative block h-36 overflow-hidden border-b border-line bg-paper">
+                    {preview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={preview} alt="" loading="lazy" decoding="async"
+                           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+                    ) : (
+                      <span className="grid-texture flex h-full w-full items-center justify-center">
+                        <span className="flex h-16 w-12 flex-col items-center justify-end rounded-[6px] border border-line-strong bg-surface pb-2 shadow-[3px_3px_0_var(--color-line)]">
+                          <span className="font-mono text-[10px] font-medium" style={{ color: meta.color }}>{extOf(doc.file_name)}</span>
+                        </span>
+                      </span>
+                    )}
+                    <span className="absolute inset-0 grid place-items-center bg-ink/0 opacity-0 transition-all group-hover:bg-ink/25 group-hover:opacity-100">
+                      <span className="flex items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-[12px] font-medium text-ink shadow"><Eye size={13} /> Preview</span>
+                    </span>
+                  </button>
+                  <div className="flex flex-1 items-center gap-3 px-4 py-3">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full" style={{ backgroundColor: `${meta.color}14`, color: meta.color }}>
+                      <Icon size={14} aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13.5px] font-medium text-ink" title={doc.file_name}>{doc.file_name}</p>
+                      <p className="flex items-center gap-1.5 truncate text-[12px] text-ink-3">
+                        {t(`documents.types.${doc.type}`)}
+                        {uploadedAt(doc) > 0 && <> · {shortDate(uploadedAt(doc))}</>}
+                        {members.length > 1 && <> · <Avatar name={uploader?.profiles?.display_name} src={uploader?.profiles?.avatar_url} size={16} /> {nameOf(doc.uploaded_by)}</>}
+                      </p>
+                    </div>
+                    <Menu.Root>
+                      <Menu.Trigger aria-label={`Options for ${doc.file_name}`}
+                                    className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-sunken hover:text-ink data-[state=open]:bg-sunken">
+                        <MoreHorizontal size={16} />
+                      </Menu.Trigger>
+                      <Menu.Portal>
+                        <Menu.Content align="end" sideOffset={4}
+                                      className="z-50 min-w-[190px] rounded-[12px] border border-line bg-surface p-1 shadow-[0_16px_40px_-16px_rgb(22_24_29/0.3)] animate-rise">
+                          <MenuItem onSelect={() => setViewing(doc)} icon={Eye}>Preview</MenuItem>
+                          <MenuItem onSelect={() => download(doc)} icon={Download}>Download</MenuItem>
+                          {mineOrEditor && <MenuItem onSelect={() => setRenaming(doc)} icon={Pencil}>Rename</MenuItem>}
+                          {mineOrEditor && (
+                            <Menu.Sub>
+                              <Menu.SubTrigger className="flex cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-[13px] text-ink outline-none data-[highlighted]:bg-sunken data-[state=open]:bg-sunken">
+                                <Tag size={14} /> Change type
+                              </Menu.SubTrigger>
+                              <Menu.Portal>
+                                <Menu.SubContent sideOffset={6}
+                                                 className="z-50 min-w-[150px] rounded-[12px] border border-line bg-surface p-1 shadow-[0_16px_40px_-16px_rgb(22_24_29/0.3)]">
+                                  {DOC_TYPES.map(type => (
+                                    <MenuItem key={type} onSelect={() => updateDoc(doc, { type })} icon={DOC_META[type].icon}>
+                                      <span className="flex-1">{t(`documents.types.${type}`)}</span>
+                                      {doc.type === type && <Check size={13} className="text-accent" />}
+                                    </MenuItem>
+                                  ))}
+                                </Menu.SubContent>
+                              </Menu.Portal>
+                            </Menu.Sub>
+                          )}
+                          {canEdit && doc.uploaded_by === userId && (
+                            <Menu.Item onSelect={() => deleteDoc(doc)}
+                                       className="mt-1 flex cursor-pointer items-center gap-2.5 rounded-[8px] border-t border-line px-2.5 py-2 text-[13px] text-negative outline-none data-[highlighted]:bg-negative-soft">
+                              <Trash2 size={14} /> {t("documents.delete")}
+                            </Menu.Item>
+                          )}
+                        </Menu.Content>
+                      </Menu.Portal>
+                    </Menu.Root>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {viewing && (
+        <PreviewDialog doc={viewing} imageUrl={previews[viewing.id]} getUrl={signedUrl}
+                       onDownload={() => download(viewing)} onClose={() => setViewing(null)} />
+      )}
+      {renaming && (
+        <RenameDialog doc={renaming} onClose={() => setRenaming(null)}
+                      onSave={name => { updateDoc(renaming, { file_name: name }); setRenaming(null); }} />
+      )}
+    </PageBody>
+  );
+}
+
+function MenuItem({ onSelect, icon: Icon, children }: { onSelect: () => void; icon: React.ElementType; children: React.ReactNode }) {
+  return (
+    <Menu.Item onSelect={onSelect}
+               className="flex cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-[13px] text-ink outline-none data-[highlighted]:bg-sunken">
+      <Icon size={14} /> {children}
+    </Menu.Item>
+  );
+}
+
+/* ── In-app preview ──────────────────────────────────────────────────────── */
+function PreviewDialog({ doc, imageUrl, getUrl, onDownload, onClose }: {
+  doc: Doc; imageUrl?: string; getUrl: (d: Doc) => Promise<string | null>; onDownload: () => void; onClose: () => void;
+}) {
+  const [url, setUrl] = useState<string | null>(imageUrl ?? null);
+  const [loading, setLoading] = useState(!imageUrl);
+
+  useEffect(() => {
+    if (imageUrl) return;
+    let alive = true;
+    getUrl(doc).then(u => { if (alive) { setUrl(u); setLoading(false); } });
+    return () => { alive = false; };
+  }, [doc, imageUrl, getUrl]);
+
+  const previewable = isImage(doc.file_name) || isPdf(doc.file_name);
+
+  return (
+    <Modal open onOpenChange={o => { if (!o) onClose(); }} title={doc.file_name} className="sm:max-w-[880px]">
+      <div className="relative h-[62dvh] overflow-hidden rounded-[12px] border border-line bg-paper">
+        {loading && <div className="grid h-full place-items-center"><Loader2 size={20} className="animate-spin text-ink-3" /></div>}
+        {!loading && url && isImage(doc.file_name) && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={url} alt={doc.file_name} className="h-full w-full object-contain" />
+        )}
+        {!loading && url && isPdf(doc.file_name) && (
+          <iframe src={url} title={doc.file_name} className="h-full w-full" />
+        )}
+        {!loading && (!url || !previewable) && (
+          <div className="grid h-full place-items-center p-6 text-center">
+            <div>
+              <FileText size={22} className="mx-auto text-ink-3" />
+              <p className="mt-2 text-[13px] text-ink-2">{url ? "This file type can't be previewed here." : "Couldn't load the file."}</p>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+      <ModalActions>
+        {url && (
+          <Button asChild variant="ghost">
+            <a href={url} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Open in new tab</a>
+          </Button>
+        )}
+        <Button onClick={onDownload}><Download size={15} /> Download</Button>
+      </ModalActions>
+    </Modal>
+  );
+}
+
+function RenameDialog({ doc, onClose, onSave }: { doc: Doc; onClose: () => void; onSave: (name: string) => void }) {
+  const ext = /\.[^.]+$/.exec(doc.file_name)?.[0] ?? "";
+  const [name, setName] = useState(doc.file_name.slice(0, doc.file_name.length - ext.length));
+  return (
+    <Modal open onOpenChange={o => { if (!o) onClose(); }} title="Rename file">
+      <form onSubmit={e => { e.preventDefault(); if (name.trim()) onSave(`${name.trim()}${ext}`); }}>
+        <div className="flex items-center gap-2">
+          <Input autoFocus value={name} onChange={e => setName(e.target.value)} aria-label="File name" />
+          {ext && <span className="font-mono text-[13px] text-ink-3">{ext}</span>}
+        </div>
+        <ModalActions>
+          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!name.trim()}>Save</Button>
+        </ModalActions>
+      </form>
+    </Modal>
   );
 }

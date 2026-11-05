@@ -2,221 +2,228 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "@/lib/i18n";
-import {
-  LayoutDashboard, Map, Wallet, Package, FileText,
-  LogOut, ChevronLeft, ChevronRight, Plane, Plus,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { ArrowLeft, LogOut, PanelLeftClose, PanelLeftOpen, Plus, Plane } from "lucide-react";
+import { cn, formatDateRange, formatShortDate } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { LanguageSwitcher } from "./language-switcher";
+import { Logo, LogoMark } from "@/components/ui/logo";
+import { Avatar } from "@/components/ui/primitives";
+import { tripNavItems, isActive, type TripSummary } from "./nav-items";
 import type { Database } from "@/types/database";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
-type Trip    = Database["public"]["Tables"]["trips"]["Row"];
+type RecentTrip = Pick<TripSummary, "id" | "title" | "start_date">;
 
-interface SidebarProps { tripId?: string }
+const COLLAPSE_KEY = "travera:sidebar-collapsed";
 
-// Per-section accent colors
-const NAV_COLORS: Record<string, { active: string; text: string; dot: string }> = {
-  dashboard: { active: "bg-blue-600",   text: "text-blue-600",   dot: "bg-blue-500"  },
-  itinerary: { active: "bg-indigo-600", text: "text-indigo-600", dot: "bg-indigo-500"},
-  budget:    { active: "bg-amber-500",  text: "text-amber-600",  dot: "bg-amber-500" },
-  packing:   { active: "bg-emerald-600",text: "text-emerald-600",dot: "bg-emerald-500"},
-  documents: { active: "bg-purple-600", text: "text-purple-600", dot: "bg-purple-500" },
-};
-
-export function Sidebar({ tripId }: SidebarProps) {
+export function Sidebar({ trip }: { trip?: TripSummary | null }) {
   const { t } = useTranslation("common");
   const pathname = usePathname();
-  const router   = useRouter();
-  const [collapsed,    setCollapsed]    = useState(false);
-  const [profile,      setProfile]      = useState<Profile | null>(null);
-  const [recentTrips,  setRecentTrips]  = useState<Trip[]>([]);
-  const supabase = createClient();
+  const router = useRouter();
+  const [collapsed, setCollapsed] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [recent, setRecent] = useState<RecentTrip[]>([]);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return;
-      supabase.from("profiles").select("*").eq("id", user.id).single()
-        .then(({ data }) => setProfile(data));
-      supabase.from("trip_members").select("trip_id").eq("user_id", user.id)
-        .then(async ({ data: rows }) => {
-          if (!rows?.length) return;
-          const ids = rows.map(r => r.trip_id);
-          const { data: trips } = await supabase
-            .from("trips").select("*").in("id", ids)
-            .order("created_at", { ascending: false }).limit(4);
-          setRecentTrips(trips ?? []);
-        });
+    try { setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1"); } catch { /* storage unavailable */ }
+  }, []);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    // getSession reads the local session — no network round-trip before the queries.
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const uid = session?.user.id;
+      if (!uid) return;
+      const [{ data: p }, { data: rows }] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", uid).single(),
+        supabase.from("trip_members").select("trip_id").eq("user_id", uid),
+      ]);
+      if (cancelled) return;
+      setProfile(p);
+      const ids = (rows ?? []).map(r => r.trip_id);
+      if (!ids.length) return;
+      const { data: trips } = await supabase.from("trips")
+        .select("id,title,start_date").in("id", ids)
+        .order("created_at", { ascending: false }).limit(5);
+      if (!cancelled) setRecent(trips ?? []);
     });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
+  }, []);
 
-  const tripNavItems = tripId ? [
-    { href: `/trips/${tripId}`,           icon: LayoutDashboard, label: t("nav.dashboard"), key: "dashboard" },
-    { href: `/trips/${tripId}/itinerary`, icon: Map,             label: t("nav.itinerary"), key: "itinerary" },
-    { href: `/trips/${tripId}/budget`,    icon: Wallet,          label: t("nav.budget"),    key: "budget"    },
-    { href: `/trips/${tripId}/packing`,   icon: Package,         label: t("nav.packing"),   key: "packing"   },
-    { href: `/trips/${tripId}/documents`, icon: FileText,        label: t("nav.docs"),      key: "documents" },
-  ] : [
-    { href: "/dashboard", icon: LayoutDashboard, label: t("nav.dashboard"), key: "dashboard" },
-  ];
-
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    router.push("/login");
+  function toggle() {
+    setCollapsed(c => {
+      try { localStorage.setItem(COLLAPSE_KEY, c ? "0" : "1"); } catch { /* ignore */ }
+      return !c;
+    });
   }
 
-  const initials = profile?.display_name
-    ? profile.display_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()
-    : "?";
+  // ⌘B / Ctrl+B toggles the sidebar (ignored while typing in a field).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "b") return;
+      const el = e.target as HTMLElement;
+      if (el.closest("input, textarea, select, [contenteditable='true']")) return;
+      e.preventDefault();
+      toggle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  async function signOut() {
+    await createClient().auth.signOut();
+    router.push("/login");
+    router.refresh();
+  }
+
+  const items = trip ? tripNavItems(trip.id) : [];
 
   return (
-    <aside className={cn(
-      "hidden lg:flex flex-col h-screen sticky top-0 bg-white border-r border-slate-100",
-      "transition-all duration-250 shrink-0 z-20",
-      collapsed ? "w-[60px]" : "w-[220px]"
-    )}>
-
-      {/* ── Logo ─────────────────────────────────────────────────── */}
-      <div className={cn(
-        "flex items-center gap-2.5 px-3.5 py-4 border-b border-slate-100",
-        collapsed && "justify-center px-2"
-      )}>
-        <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-xl sky-gradient flex items-center justify-center shrink-0
-                          shadow-sm shadow-blue-200">
-            <Plane size={15} className="text-white -rotate-45"/>
-          </div>
-          {!collapsed && (
-            <span className="font-extrabold text-blue-700 text-[15px] truncate"
-                  style={{ fontFamily: "var(--font-heading)" }}>
-              Travera
-            </span>
-          )}
-        </Link>
+    <aside
+      className={cn(
+        "sticky top-0 z-20 hidden h-dvh shrink-0 flex-col border-r border-line bg-paper lg:flex",
+        "transition-[width] duration-200 ease-out",
+        collapsed ? "w-[68px]" : "w-[252px]"
+      )}
+    >
+      {/* Brand */}
+      <div className={cn("flex h-16 items-center", collapsed ? "justify-center" : "justify-between px-5")}>
+        {collapsed ? (
+          // Collapsed: the logo turns into the expand button on hover/focus, in the same spot as "collapse".
+          <button onClick={toggle} aria-label="Expand sidebar (⌘B)" title="Expand sidebar (⌘B)"
+                  className="group/expand relative grid h-10 w-10 place-items-center rounded-[var(--radius-control)] transition-colors hover:bg-sunken">
+            <LogoMark size={26} className="transition-opacity group-hover/expand:opacity-0 group-focus-visible/expand:opacity-0" />
+            <PanelLeftOpen size={18} className="absolute text-ink opacity-0 transition-opacity group-hover/expand:opacity-100 group-focus-visible/expand:opacity-100" />
+          </button>
+        ) : (
+          <>
+            <Link href="/dashboard" aria-label="Travera home"><Logo /></Link>
+            <button onClick={toggle} aria-label="Collapse sidebar (⌘B)" title="Collapse sidebar (⌘B)"
+                    className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-sunken hover:text-ink">
+              <PanelLeftClose size={16} />
+            </button>
+          </>
+        )}
       </div>
 
-      {/* ── User info ─────────────────────────────────────────────── */}
-      {!collapsed && profile && (
-        <div className="px-3.5 py-3 border-b border-slate-100 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full sky-gradient flex items-center justify-center
-                          text-white text-xs font-bold shrink-0 shadow-sm">
-            {profile.avatar_url
-              ? <img src={profile.avatar_url} alt={profile.display_name ?? "User"}
-                     className="w-full h-full rounded-full object-cover"/>
-              : initials}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold text-slate-800 truncate"
-               style={{ fontFamily: "var(--font-body)" }}>
-              {profile.display_name ?? "Traveler"}
-            </p>
-            <p className="text-[11px] text-slate-400 font-medium">{recentTrips.length} trips</p>
-          </div>
-        </div>
-      )}
+      <nav className="flex-1 overflow-y-auto scrollbar-none px-3 pb-4" aria-label="Main">
+        {trip ? (
+          <>
+            <NavLink href="/dashboard" icon={ArrowLeft} label="All trips" collapsed={collapsed} muted />
+            {!collapsed && (
+              <div className="mx-2 mb-3 mt-5">
+                <p className="eyebrow">Current trip</p>
+                <p className="mt-1.5 line-clamp-2 text-[15px] font-semibold leading-snug text-ink">{trip.title}</p>
+                {trip.start_date && trip.end_date && (
+                  <p className="mt-1 font-mono text-[11px] text-ink-3">
+                    {formatDateRange(trip.start_date, trip.end_date)}
+                  </p>
+                )}
+              </div>
+            )}
+            <div className={cn("space-y-0.5", collapsed && "mt-3")}>
+              {items.map(item => (
+                <NavLink key={item.href} href={item.href} icon={item.icon} label={t(item.labelKey)}
+                         active={isActive(pathname, item)} collapsed={collapsed} />
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => document.dispatchEvent(new CustomEvent("open-create-trip"))}
+              className={cn(
+                "mb-4 flex h-10 w-full items-center gap-2 rounded-[var(--radius-control)] bg-ink text-[13px] font-medium text-paper",
+                "transition-colors hover:bg-[#2a2d35]",
+                collapsed ? "justify-center" : "px-3"
+              )}
+              aria-label={t("dashboard.newTrip")}
+              title={collapsed ? t("dashboard.newTrip") : undefined}
+            >
+              <Plus size={16} aria-hidden="true" />
+              {!collapsed && t("dashboard.newTrip")}
+            </button>
+            <NavLink href="/dashboard" icon={Plane} label={t("dashboard.myTrips")}
+                     active={pathname === "/dashboard"} collapsed={collapsed} />
 
-      {/* ── Trip breadcrumb ───────────────────────────────────────── */}
-      {tripId && !collapsed && (
-        <div className="px-3.5 py-2 border-b border-slate-100">
-          <Link href="/dashboard"
-                className="text-xs text-slate-400 hover:text-blue-600 flex items-center gap-1
-                           transition-colors font-medium">
-            <ChevronLeft size={12}/> All trips
-          </Link>
-        </div>
-      )}
-
-      {/* ── Main nav ──────────────────────────────────────────────── */}
-      <nav className="flex-1 py-2.5 px-2 space-y-0.5 overflow-y-auto scrollbar-hide"
-           aria-label="Main navigation">
-        {tripNavItems.map(({ href, icon: Icon, label, key }) => {
-          const isExact = href === `/trips/${tripId}` || href === "/dashboard";
-          const active  = isExact ? pathname === href : pathname.startsWith(href);
-          const colors  = NAV_COLORS[key] ?? NAV_COLORS.dashboard;
-          return (
-            <Link key={href} href={href}
-                  className={cn(
-                    "flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13px] font-medium",
-                    "transition-all duration-150",
-                    active ? `${colors.active} text-white shadow-sm`
-                           : `text-slate-500 hover:bg-slate-50 hover:text-slate-800`,
-                    collapsed && "justify-center px-2"
-                  )}
-                  aria-current={active ? "page" : undefined}
-                  title={collapsed ? label : undefined}>
-              <Icon size={15} aria-hidden="true" className="shrink-0"/>
-              {!collapsed && <span>{label}</span>}
-            </Link>
-          );
-        })}
-
-        {/* Recent trips (when not in a trip) */}
-        {!tripId && !collapsed && recentTrips.length > 0 && (
-          <div className="pt-3">
-            <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest px-2.5 mb-1.5">
-              Recent
-            </p>
-            {recentTrips.map(trip => (
-              <Link key={trip.id} href={`/trips/${trip.id}`}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-[13px]
-                               text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition-colors">
-                <div className="w-5 h-5 rounded-lg sky-gradient flex items-center justify-center shrink-0">
-                  <Plane size={10} className="text-white -rotate-45"/>
-                </div>
-                <span className="truncate">{trip.title}</span>
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {/* New trip button */}
-        {!tripId && !collapsed && (
-          <button
-            onClick={() => document.dispatchEvent(new CustomEvent("open-create-trip"))}
-            className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-xl text-[13px]
-                       text-blue-600 hover:bg-blue-50 transition-colors mt-1 font-semibold
-                       cursor-pointer">
-            <Plus size={14}/> New Trip
-          </button>
-        )}
-        {!tripId && collapsed && (
-          <button
-            onClick={() => document.dispatchEvent(new CustomEvent("open-create-trip"))}
-            className="flex items-center justify-center w-full py-2 rounded-xl
-                       text-blue-600 hover:bg-blue-50 transition-colors"
-            title="New Trip">
-            <Plus size={16}/>
-          </button>
+            {!collapsed && recent.length > 0 && (
+              <div className="mt-6">
+                <p className="eyebrow mx-2 mb-2">Recent</p>
+                <ul className="space-y-0.5">
+                  {recent.map(r => (
+                    <li key={r.id}>
+                      <Link href={`/trips/${r.id}`}
+                            className="flex items-center gap-3 rounded-[var(--radius-control)] px-2 py-1.5 text-[13px] text-ink-2 transition-colors hover:bg-sunken hover:text-ink">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line-strong" aria-hidden="true" />
+                        <span className="flex-1 truncate">{r.title}</span>
+                        {r.start_date && (
+                          <span className="font-mono text-[10.5px] text-ink-3">{formatShortDate(r.start_date)}</span>
+                        )}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
         )}
       </nav>
 
-      {/* ── Bottom ────────────────────────────────────────────────── */}
-      <div className="border-t border-slate-100 p-2 space-y-0.5">
-        {!collapsed && <LanguageSwitcher className="w-full" dropUp/>}
-        <button onClick={handleSignOut}
-                className={cn(
-                  "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-xl text-[13px] font-medium",
-                  "text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors",
-                  collapsed && "justify-center px-2"
-                )}
-                aria-label={t("nav.signOut")} title={collapsed ? t("nav.signOut") : undefined}>
-          <LogOut size={14} aria-hidden="true"/>
-          {!collapsed && <span>{t("nav.signOut")}</span>}
-        </button>
-        <button onClick={() => setCollapsed(c => !c)}
-                className="flex items-center justify-center w-full py-1.5 rounded-xl
-                           text-slate-300 hover:bg-slate-50 hover:text-slate-500 transition-colors
-                           text-xs font-medium"
-                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
-          {collapsed
-            ? <ChevronRight size={14}/>
-            : <><ChevronLeft size={14}/><span className="ml-1">Collapse</span></>}
-        </button>
+      {/* Footer */}
+      <div className="space-y-1 border-t border-line p-3">
+        {collapsed ? (
+          <>
+            <LanguageSwitcher variant="compact" side="top" className="mx-auto" />
+            <button onClick={signOut} aria-label={t("nav.signOut")} title={t("nav.signOut")}
+                    className="mx-auto grid h-9 w-9 place-items-center rounded-[var(--radius-control)] text-ink-3 transition-colors hover:bg-sunken hover:text-ink">
+              <LogOut size={16} />
+            </button>
+          </>
+        ) : (
+          <>
+            <LanguageSwitcher side="top" />
+            <div className="flex items-center gap-2.5 rounded-[var(--radius-control)] px-2 py-2">
+              <Avatar name={profile?.display_name} src={profile?.avatar_url} size={30} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-medium text-ink">{profile?.display_name ?? " "}</p>
+                <p className="font-mono text-[10.5px] text-ink-3">{recent.length} {recent.length === 1 ? "trip" : "trips"}</p>
+              </div>
+              <button onClick={signOut} aria-label={t("nav.signOut")} title={t("nav.signOut")}
+                      className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-sunken hover:text-negative">
+                <LogOut size={15} />
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </aside>
+  );
+}
+
+function NavLink({ href, icon: Icon, label, active, collapsed, muted }: {
+  href: string; icon: React.ElementType; label: string;
+  active?: boolean; collapsed?: boolean; muted?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      title={collapsed ? label : undefined}
+      className={cn(
+        "group relative flex h-9 items-center gap-3 rounded-[var(--radius-control)] text-[13.5px] transition-colors",
+        collapsed ? "justify-center" : "px-2.5",
+        active
+          ? "bg-surface font-medium text-ink shadow-[0_0_0_1px_var(--color-line)]"
+          : muted ? "text-ink-3 hover:text-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
+      )}
+    >
+      {active && <span className="absolute -left-3 top-2 bottom-2 w-[3px] rounded-r-full bg-accent" aria-hidden="true" />}
+      <Icon size={16} aria-hidden="true" className={cn("shrink-0", active && "text-accent")} />
+      {!collapsed && <span className="truncate">{label}</span>}
+    </Link>
   );
 }

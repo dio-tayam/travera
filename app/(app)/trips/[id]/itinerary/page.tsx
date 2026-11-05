@@ -1,58 +1,21 @@
-export const dynamic = "force-dynamic";
 import { createClient } from "@/lib/supabase/server";
-import { redirect, notFound } from "next/navigation";
+import { requireTrip } from "@/lib/trip-access";
 import { ItineraryClient } from "./itinerary-client";
 
-export default async function ItineraryPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export const dynamic = "force-dynamic";
+export const metadata = { title: "Itinerary" };
+
+export default async function ItineraryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
-  const { data: trip } = await supabase
-    .from("trips")
-    .select("*")
-    .eq("id", id)
-    .single();
-
-  if (!trip) notFound();
-
-  const { data: membership } = await supabase
-    .from("trip_members")
-    .select("role")
-    .eq("trip_id", id)
-    .eq("user_id", user.id)
-    .single();
-
-  if (!membership) notFound();
-
-  const { data: days } = await supabase
-    .from("itinerary_days")
-    .select("*")
-    .eq("trip_id", id)
-    .order("day_number", { ascending: true });
-
-  const { data: stops } = await supabase
-    .from("stops")
-    .select("*")
-    .eq("trip_id", id)
-    .order("order_index", { ascending: true });
+  const [{ trip, user, canEdit }, { data: days }, { data: stops }] = await Promise.all([
+    requireTrip(id),
+    supabase.from("itinerary_days").select("*").eq("trip_id", id).order("day_number", { ascending: true }),
+    supabase.from("stops").select("*").eq("trip_id", id).order("order_index", { ascending: true }),
+  ]);
 
   return (
-    <ItineraryClient
-      trip={trip}
-      initialDays={days ?? []}
-      initialStops={stops ?? []}
-      userId={user.id}
-      canEdit={membership.role === "owner" || membership.role === "editor"}
-    />
+    <ItineraryClient trip={trip} initialDays={days ?? []} initialStops={stops ?? []}
+                     userId={user.id} canEdit={canEdit} />
   );
 }

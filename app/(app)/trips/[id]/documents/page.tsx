@@ -1,45 +1,21 @@
-export const dynamic = "force-dynamic";
 import { createClient } from "@/lib/supabase/server";
-import { redirect, notFound } from "next/navigation";
+import { requireTrip } from "@/lib/trip-access";
 import { DocumentsClient } from "./documents-client";
 
-export default async function DocumentsPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export const dynamic = "force-dynamic";
+export const metadata = { title: "Documents" };
+
+export default async function DocumentsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
-  const { data: trip } = await supabase.from("trips").select("*").eq("id", id).single();
-  if (!trip) notFound();
-
-  const { data: membership } = await supabase
-    .from("trip_members")
-    .select("role")
-    .eq("trip_id", id)
-    .eq("user_id", user.id)
-    .single();
-  if (!membership) notFound();
-
-  const { data: docs } = await supabase
-    .from("documents")
-    .select("*")
-    .eq("trip_id", id)
-    .order("id", { ascending: false });
+  const [{ trip, user, canEdit }, { data: docs }, { data: members }] = await Promise.all([
+    requireTrip(id),
+    supabase.from("documents").select("*").eq("trip_id", id),
+    supabase.from("trip_members").select("*, profiles(*)").eq("trip_id", id),
+  ]);
 
   return (
-    <DocumentsClient
-      trip={trip}
-      initialDocs={docs ?? []}
-      userId={user.id}
-      canEdit={membership.role === "owner" || membership.role === "editor"}
-    />
+    <DocumentsClient trip={trip} initialDocs={docs ?? []} members={members ?? []}
+                     userId={user.id} canEdit={canEdit} />
   );
 }

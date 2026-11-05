@@ -4,67 +4,36 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import "@/lib/i18n";
-import { LayoutDashboard, Map, Wallet, Package, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { tripNavItems, isActive } from "./nav-items";
 
-interface MobileNavProps { tripId?: string }
-
-const TAB_COLORS: Record<string, string> = {
-  dashboard: "text-blue-600",
-  itinerary: "text-indigo-600",
-  budget:    "text-amber-500",
-  packing:   "text-emerald-600",
-  documents: "text-purple-600",
-};
-
-export function MobileNav({ tripId }: MobileNavProps) {
+/** Bottom tab bar — only shown inside a trip, on screens below `lg`. */
+export function MobileNav({ tripId }: { tripId: string }) {
   const { t } = useTranslation("common");
   const pathname = usePathname();
 
-  const tabs = tripId ? [
-    { href: `/trips/${tripId}`,           icon: LayoutDashboard, label: t("nav.dashboard"), key: "dashboard" },
-    { href: `/trips/${tripId}/itinerary`, icon: Map,             label: t("nav.map"),       key: "itinerary" },
-    { href: `/trips/${tripId}/budget`,    icon: Wallet,          label: t("nav.budget"),    key: "budget"    },
-    { href: `/trips/${tripId}/packing`,   icon: Package,         label: t("nav.packing"),   key: "packing"   },
-    { href: `/trips/${tripId}/documents`, icon: FileText,        label: t("nav.docs"),      key: "documents" },
-  ] : [
-    { href: "/dashboard", icon: LayoutDashboard, label: t("nav.dashboard"), key: "dashboard" },
-  ];
-
   return (
-    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/96 backdrop-blur-md
-                    border-t border-slate-100 flex safe-area-inset-bottom"
-         aria-label="Mobile navigation">
-      {tabs.map(({ href, icon: Icon, label, key }) => {
-        const isExact = href === `/trips/${tripId}` || href === "/dashboard";
-        const active  = isExact ? pathname === href : pathname.startsWith(href);
-        const color   = TAB_COLORS[key] ?? TAB_COLORS.dashboard;
-        return (
-          <Link
-            key={href}
-            href={href}
-            className="flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 min-h-14
-                       transition-all duration-150 relative"
-            aria-current={active ? "page" : undefined}
-          >
-            {active && (
-              <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full
-                               bg-current opacity-80"
-                    style={{ color: "inherit" }}/>
-            )}
-            <Icon
-              size={20}
-              aria-hidden="true"
-              className={cn("transition-all duration-150",
-                active ? `${color} scale-110` : "text-slate-400")}
-            />
-            <span className={cn("text-[10px] font-semibold transition-colors tracking-wide",
-              active ? color : "text-slate-400")}>
-              {label}
-            </span>
-          </Link>
-        );
-      })}
+    <nav aria-label="Trip sections"
+         className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper/95 backdrop-blur-md safe-bottom lg:hidden">
+      <ul className="mx-auto flex max-w-lg">
+        {tripNavItems(tripId).map(item => {
+          const active = isActive(pathname, item);
+          const Icon = item.icon;
+          const label = item.labelKey === "nav.itinerary" ? t("nav.map") : t(item.labelKey);
+          return (
+            <li key={item.href} className="flex-1">
+              <Link href={item.href} aria-current={active ? "page" : undefined}
+                    className={cn("relative flex h-16 flex-col items-center justify-center gap-1 transition-colors",
+                                  active ? "text-ink" : "text-ink-3")}>
+                <span className={cn("absolute top-0 h-[3px] w-8 rounded-b-full bg-accent transition-opacity",
+                                    active ? "opacity-100" : "opacity-0")} aria-hidden="true" />
+                <Icon size={20} aria-hidden="true" strokeWidth={active ? 2.2 : 1.8} />
+                <span className="text-[10.5px] font-medium">{label}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </nav>
   );
 }

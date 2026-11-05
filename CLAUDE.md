@@ -16,7 +16,6 @@ npm run lint     # Run ESLint
 Copy `.env.local.example` to `.env.local` and fill in:
 - `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — Supabase anon key
-- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` — Google Maps API key
 
 ## Architecture
 
@@ -50,7 +49,7 @@ Auth middleware in `lib/supabase/middleware.ts` protects `/dashboard` and `/trip
 All types are in `types/database.ts`. Key tables:
 - `profiles` — User display name, avatar, currency preference
 - `trips` + `trip_members` — Trip data with owner/editor/viewer roles
-- `itinerary_days` + `stops` — Day-by-day planning with Google Places data on stops
+- `itinerary_days` + `stops` — Day-by-day planning with place data (OpenStreetMap) on stops
 - `expenses` + `expense_splits` — Budget tracking and cost splitting
 - `packing_items` — Packing lists (with AI suggestions via Supabase Edge Function at `supabase/functions/suggest-packing-items/`)
 - `documents` — File storage for travel docs
@@ -59,11 +58,16 @@ SQL schema files are in `supabase/`: `schema.sql`, `setup-storage.sql`, `fix-rls
 
 ### Styling
 
-Tailwind CSS v4 with custom design tokens defined as CSS variables in `app/globals.css`. Key tokens:
-- `--color-primary: #2563eb` (blue), `--color-accent: #f59e0b` (amber)
-- Section colors: itinerary (indigo), budget (amber), packing (emerald), documents (purple)
-- Fonts: Plus Jakarta Sans (headings), DM Sans (body)
-- Custom utilities: `.sky-gradient`, `.glass`, `.card`, `.card-hover`, `.nav-active-*`
+Tailwind CSS v4 with design tokens in the `@theme` block of `app/globals.css` — every colour should come from there. The look is "modern travel / boarding pass": warm paper + ink neutrals, one signal-orange accent, no gradients.
+- Neutrals: `paper` (bg), `surface` (panels), `sunken`, `line`, `line-strong`, `ink`, `ink-2`, `ink-3` → e.g. `bg-paper text-ink-2 border-line`
+- Accent: `accent` / `accent-ink` / `accent-soft` — use sparingly (active nav, highlights, map destination)
+- Status: `positive`, `negative`, `warning` (+ `-soft`). Category hues for stops/expenses/docs live in `lib/categories.ts` (icon + colour per type; no emoji)
+- Fonts: Bricolage Grotesque (`.display` headings — emphasis via `<em>` is a colour shift, not italics), Onest (UI), JetBrains Mono (`.eyebrow` labels, figures). Logo: compass-rose mark (orange north point; `.logo-rose` group animates) in `components/ui/logo.tsx` (mirrored in `public/favicon.svg`). Background graphic: `<Contours />` topographic lines (`components/ui/contours.tsx`)
+- Utilities: `.panel` (the one card style), `.panel-interactive`, `.eyebrow`, `.display`, `.perforation` (ticket divider), `.grid-texture`, `.skeleton`
+
+UI primitives live in `components/ui/`: `Button` (cva variants, `asChild`), `Input`/`Select`/`Textarea`/`Field`, `Modal` (Radix dialog; bottom sheet on mobile), and `primitives.tsx` (`PageHeader`, `PageBody`, `SectionTitle`, `EmptyState`, `Progress`, `Avatar`, `Badge`, `Figure`). Build pages from these rather than ad-hoc classes.
+
+Server pages load data with `requireTrip()` (`lib/trip-access.ts`) + `Promise.all`; `getUser()` in `lib/supabase/server.ts` is request-cached. The Google Maps bundle is code-split via `LazyTripMap` and only mounted where visible.
 
 Use `cn()` from `lib/utils.ts` (wraps `clsx` + `tailwind-merge`) for conditional class merging.
 
@@ -74,7 +78,7 @@ Use `cn()` from `lib/utils.ts` (wraps `clsx` + `tailwind-merge`) for conditional
 ### Key Libraries
 
 - **UI primitives**: Radix UI components in `components/ui/`
-- **Maps**: `@react-google-maps/api` + `use-places-autocomplete` for stop search
+- **Maps** (all free, no API key or billing): MapLibre GL renders OpenFreeMap tiles; Photon (OSM) powers place search and reverse lookup; OSRM on routing.openstreetmap.de gives walk/bike/drive routes. All service calls live in `lib/maps.ts`. `components/shared/trip-map.tsx` handles pin↔list selection, per-leg routes (cached; straight-line estimate fallback), click-to-add places, and live location with geofences (`GEOFENCE_METERS`). "Directions" buttons are plain Google Maps URLs (no API). These are community services with fair-use limits — keep search debounced and routes cached.
 - **Drag & drop**: `@dnd-kit` for reordering itinerary stops
 - **Notifications**: `sonner` toast library
 - **Dates**: `date-fns`

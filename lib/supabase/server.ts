@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
@@ -25,3 +26,13 @@ export async function createClient() {
     }
   );
 }
+
+/**
+ * The signed-in user, verified with Supabase Auth. Wrapped in React `cache` so the
+ * layout and page share one auth round-trip per request instead of one each.
+ */
+export const getUser = cache(async () => {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  return user;
+});
