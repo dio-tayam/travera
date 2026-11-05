@@ -10,6 +10,14 @@ export async function GET(request: Request) {
   // Only allow same-site paths (blocks "//evil.com" or absolute URLs).
   const next = requested.startsWith("/") && !requested.startsWith("//") ? requested : "/dashboard";
 
+  if (authError) {
+    console.error("Supabase OAuth provider returned an error", {
+      error: searchParams.get("error"),
+      errorCode: searchParams.get("error_code"),
+      description: searchParams.get("error_description"),
+    });
+  }
+
   if (!authError && code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
