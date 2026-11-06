@@ -92,7 +92,7 @@ function ItineraryDemo() {
   const [active, setActive] = useState(1);
   const route = `M ${DEMO_STOPS.map(s => `${s.x} ${s.y}`).join(" L ")}`;
   return (
-    <div className="grid gap-3 sm:grid-cols-[1fr_1.05fr]">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1.05fr]">
       <ol className="space-y-1.5" role="listbox" aria-label="Stops">
         {DEMO_STOPS.map((s, i) => (
           <li key={s.title}>
@@ -185,7 +185,7 @@ function BudgetDemo() {
           </button>
         )}
       </div>
-      <div className="grid gap-3 sm:grid-cols-[0.85fr_1.15fr]">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[0.85fr_1.15fr]">
         <div className="rounded-[14px] bg-ink p-4 text-paper">
           <p className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-paper/50">Total spent</p>
           <p className="display mt-1.5 text-[30px] tabular">{peso(shown)}</p>
@@ -273,7 +273,7 @@ function DocsDemo() {
   const [open, setOpen] = useState(0);
   const doc = DOCS[open];
   return (
-    <div className="grid items-center gap-4 sm:grid-cols-[1fr_1fr]">
+    <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_1fr]">
       <div className="relative mx-auto h-[170px] w-[180px]">
         {DOCS.map((d, i) => {
           const pos = (i - open + DOCS.length) % DOCS.length; // 0 = front
@@ -312,7 +312,7 @@ function DocsDemo() {
 /* ── Section ─────────────────────────────────────────────────────────────── */
 export function FeaturePlayground() {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Reveal delay={0} className="h-full">
         <PlayCard eyebrow="01 · Itinerary" hint="Click a stop" title="Every day, mapped."
                   body="Search any place, drag to reorder, and see each day's route and pins on a live map.">

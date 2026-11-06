@@ -51,7 +51,7 @@ All types are in `types/database.ts`. Key tables:
 - `trips` + `trip_members` — Trip data with owner/editor/viewer roles
 - `itinerary_days` + `stops` — Day-by-day planning with place data (OpenStreetMap) on stops
 - `expenses` + `expense_splits` — Budget tracking and cost splitting
-- `packing_items` — Packing lists (with AI suggestions via Supabase Edge Function at `supabase/functions/suggest-packing-items/`)
+- `packing_items` — Packing lists (rule-based suggestions in `lib/packing-suggestions.ts`)
 - `documents` — File storage for travel docs
 
 SQL schema files are in `supabase/`: `schema.sql`, `setup-storage.sql`, `fix-rls.sql`.
@@ -67,7 +67,7 @@ Tailwind CSS v4 with design tokens in the `@theme` block of `app/globals.css` �
 
 UI primitives live in `components/ui/`: `Button` (cva variants, `asChild`), `Input`/`Select`/`Textarea`/`Field`, `Modal` (Radix dialog; bottom sheet on mobile), and `primitives.tsx` (`PageHeader`, `PageBody`, `SectionTitle`, `EmptyState`, `Progress`, `Avatar`, `Badge`, `Figure`). Build pages from these rather than ad-hoc classes.
 
-Server pages load data with `requireTrip()` (`lib/trip-access.ts`) + `Promise.all`; `getUser()` in `lib/supabase/server.ts` is request-cached. The Google Maps bundle is code-split via `LazyTripMap` and only mounted where visible.
+Server pages load data with `requireTrip()` (`lib/trip-access.ts`) + `Promise.all`; `getUser()` in `lib/supabase/server.ts` is request-cached. The map bundle (MapLibre) is code-split via `LazyTripMap` and only mounted where visible.
 
 Use `cn()` from `lib/utils.ts` (wraps `clsx` + `tailwind-merge`) for conditional class merging.
 
@@ -82,6 +82,10 @@ Use `cn()` from `lib/utils.ts` (wraps `clsx` + `tailwind-merge`) for conditional
 - **Drag & drop**: `@dnd-kit` for reordering itinerary stops
 - **Notifications**: `sonner` toast library
 - **Dates**: `date-fns`
+
+### Security headers
+
+Set for every route in `next.config.ts` (`headers()`): Content-Security-Policy, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy and COOP. The CSP allow-lists the Supabase project host plus the free map services (`tiles.openfreemap.org`, `photon.komoot.io`, `routing.openstreetmap.de`). **If you add a new browser-side API, image host or iframe source, add it to the CSP** or the browser will block it (look for "Refused to connect" in the console). Geolocation is allowed for our own origin only (live location on the map).
 
 ### Deployment
 

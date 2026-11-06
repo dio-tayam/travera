@@ -232,7 +232,7 @@ export function PackingClient({ trip, initialItems, members, userId, canEdit }: 
             {filter === "mine" ? "Nothing assigned to you yet." : filter === "packed" ? "Nothing packed yet." : "All packed!"}
           </p>
         ) : (
-          <div className="grid items-start gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
             {grouped.map(([cat, list]) => {
               const all = items.filter(i => (i.category || "Other") === cat);
               const done = all.filter(i => i.is_packed).length;

@@ -97,7 +97,7 @@ export function DashboardClient({ profile, trips, userId }: Props) {
             <section className="mt-10" aria-labelledby="upcoming-heading">
               <SectionTitle meta={upcoming.length}><span id="upcoming-heading">Upcoming</span></SectionTitle>
               {upcoming.length > 0 ? (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {upcoming.map(trip => <TripPass key={trip.id} trip={trip} />)}
                 </div>
               ) : (

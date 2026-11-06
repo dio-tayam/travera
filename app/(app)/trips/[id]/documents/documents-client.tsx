@@ -181,7 +181,7 @@ export function DocumentsClient({ trip, initialDocs, members, userId, canEdit }:
       )}
 
       {/* Essentials checklist */}
-      <div className="mt-8 grid gap-3 sm:grid-cols-3">
+      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {ESSENTIALS.map(e => {
           const have = counts[e.type] ?? 0;
           const { icon: Icon, color } = DOC_META[e.type];
@@ -300,7 +300,7 @@ export function DocumentsClient({ trip, initialDocs, members, userId, canEdit }:
         ) : visible.length === 0 ? (
           <p className="panel px-5 py-8 text-center text-[13px] text-ink-3">No files match.</p>
         ) : (
-          <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {visible.map(doc => {
               const meta = DOC_META[doc.type] ?? DOC_META.other;
               const Icon = meta.icon;

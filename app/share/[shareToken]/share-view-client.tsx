@@ -71,7 +71,7 @@ export function ShareViewClient({ trip, owner, days, stops }: Props) {
 
         <div className="panel mt-6 grid grid-cols-2 gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-4">
           <Figure label={t("trip.destination")} value={trip.destination ?? "—"} />
-          <Figure label="Dates" value={trip.start_date && trip.end_date ? formatDateRange(trip.start_date, trip.end_date) : "—"} />
+          <Figure label="Dates" valueClassName="whitespace-normal" value={trip.start_date && trip.end_date ? formatDateRange(trip.start_date, trip.end_date) : "—"} />
           <Figure label="Length" value={length ? `${length} days` : `${days.length} days`} />
           <Figure label="Stops" value={stops.length} />
         </div>
@@ -92,7 +92,7 @@ export function ShareViewClient({ trip, owner, days, stops }: Props) {
 
           {days.length > 0 && <DayStrip days={days} selected={selected} onSelect={setSelected} className="mt-5 pb-1" />}
 
-          <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+          <div className="mt-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
             <div className="order-2 lg:order-1">
               {dayStops.length === 0 ? (
                 <div className="panel grid-texture flex flex-col items-center px-6 py-12 text-center">

@@ -195,7 +195,7 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
 
       {/* Summary */}
       <div className="panel mt-6 overflow-hidden">
-        <div className="grid gap-6 px-5 py-6 sm:px-6 lg:grid-cols-[1.15fr_1fr]">
+        <div className="grid grid-cols-1 gap-6 px-5 py-6 sm:px-6 lg:grid-cols-[1.15fr_1fr]">
           <div>
             <p className="eyebrow">{t("budget.totalSpent")}</p>
             <p className="display mt-2 text-[44px] text-ink tabular sm:text-[52px]">{formatCurrency(totalSpent, cur)}</p>
@@ -291,7 +291,7 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
         )}
       </div>
 
-      <div className="mt-10 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="mt-10 grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* Ledger */}
         <section aria-labelledby="ledger-heading">
           <SectionTitle meta={visible.length !== expenses.length ? `${visible.length} of ${expenses.length}` : expenses.length}>
@@ -348,7 +348,7 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
                     </button>
                     <span className="shrink-0 text-[14px] font-medium text-ink tabular">{formatCurrency(exp.amount, exp.currency)}</span>
                     {canEdit && (
-                      <div className="flex shrink-0 lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
+                      <div className="hidden shrink-0 lg:flex lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                         <button onClick={() => setEditor({ open: true, expense: exp })} aria-label={`Edit ${exp.description ?? "expense"}`}
                                 className="grid h-8 w-8 place-items-center rounded-md text-ink-3 transition-colors hover:bg-sunken hover:text-ink">
                           <Pencil size={14} />

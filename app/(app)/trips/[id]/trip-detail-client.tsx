@@ -92,12 +92,12 @@ export function TripDetailClient({ trip, membership, members }: Props) {
       {/* Boarding-pass facts */}
       <div className="panel mt-6 grid grid-cols-2 gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-4">
         <Figure label={t("trip.destination")} value={trip.destination ?? "—"} />
-        <Figure label="Dates" value={trip.start_date && trip.end_date ? formatDateRange(trip.start_date, trip.end_date) : "Not set"} />
+        <Figure label="Dates" valueClassName="whitespace-normal" value={trip.start_date && trip.end_date ? formatDateRange(trip.start_date, trip.end_date) : "Not set"} />
         <Figure label="Length" value={days ? `${days} ${days === 1 ? "day" : "days"}` : "—"} />
         <Figure label={t("trip.travelers")} value={members.length} />
       </div>
 
-      <div className="mt-10 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="mt-10 grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-10">
           {/* Sections */}
           <section aria-labelledby="plan-heading">
@@ -115,7 +115,7 @@ export function TripDetailClient({ trip, membership, members }: Props) {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-[14px] font-medium text-ink">{t(s.labelKey)}</span>
-                        <span className="block truncate text-[12.5px] text-ink-3">{SECTION_COPY[key]}</span>
+                        <span className="block line-clamp-2 text-[12.5px] text-ink-3 sm:line-clamp-1">{SECTION_COPY[key]}</span>
                       </span>
                       <ArrowRight size={16} aria-hidden="true"
                                   className="text-ink-3 transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />

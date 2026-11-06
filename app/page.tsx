@@ -63,7 +63,7 @@ export default async function LandingPage() {
           <div className="absolute inset-x-0 top-0 h-[780px] overflow-hidden [mask-image:linear-gradient(to_bottom,black_30%,transparent)]" aria-hidden="true">
             <Contours className="animate-drift h-full w-full text-line-strong/70" />
           </div>
-          <div className="relative mx-auto grid max-w-[1200px] items-center gap-14 px-4 pb-20 pt-12 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)] lg:gap-12 lg:px-8 lg:pb-28 lg:pt-20">
+          <div className="relative mx-auto grid grid-cols-1 max-w-[1200px] items-center gap-14 px-4 pb-20 pt-12 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)] lg:gap-12 lg:px-8 lg:pb-28 lg:pt-20">
             <div>
               <p className="animate-rise inline-flex items-center gap-3 rounded-full border border-line bg-surface py-1.5 pl-3.5 pr-1.5 text-[12.5px] text-ink-2 shadow-[0_6px_20px_-12px_rgb(22_24_29/0.3)]">
                 Next stop
@@ -132,7 +132,7 @@ export default async function LandingPage() {
               <FeaturePlayground />
             </div>
 
-            <ul className="mt-16 grid gap-4 md:grid-cols-3">
+            <ul className="mt-16 grid grid-cols-1 gap-4 md:grid-cols-3">
               {EXTRAS.map(({ icon: Icon, title, body }, i) => (
                 <Reveal as="li" key={title} delay={i * 100}
                         className="group flex gap-4 rounded-[18px] border border-line bg-paper px-6 py-5 transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1 hover:border-line-strong hover:shadow-[0_20px_40px_-24px_rgb(22_24_29/0.35)]">
@@ -152,7 +152,7 @@ export default async function LandingPage() {
         {/* ── How it works ─────────────────────────────────────── */}
         <section id="how" className="scroll-mt-20 border-t border-line">
           <div className="mx-auto max-w-[1200px] px-4 py-24 sm:px-6 lg:px-8 lg:py-32">
-            <div className="grid gap-12 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+            <div className="grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
               <div className="lg:sticky lg:top-28 lg:self-start">
                 <Reveal as="p" className="eyebrow">How it works</Reveal>
                 <Reveal as="h2" delay={80} className="display mt-3 text-[40px] text-ink text-balance sm:text-[56px]">
@@ -169,7 +169,7 @@ export default async function LandingPage() {
 
         {/* ── FAQ ──────────────────────────────────────────────── */}
         <section id="faq" className="scroll-mt-20 border-t border-line bg-surface">
-          <div className="mx-auto grid max-w-[1200px] gap-12 px-4 py-24 sm:px-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:px-8 lg:py-32">
+          <div className="mx-auto grid grid-cols-1 max-w-[1200px] gap-12 px-4 py-24 sm:px-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:px-8 lg:py-32">
             <div>
               <Reveal as="p" className="eyebrow">FAQ</Reveal>
               <Reveal as="h2" delay={80} className="display mt-3 text-[40px] text-ink sm:text-[56px]">Questions, answered.</Reveal>
