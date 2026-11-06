@@ -10,12 +10,14 @@ import { HeroMockup } from "@/components/landing/visuals";
 import { Logo } from "@/components/ui/logo";
 import { Contours } from "@/components/ui/contours";
 import { Button } from "@/components/ui/button";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: { absolute: "Travera — Plan trips together" },
+  title: { absolute: "Travera — Free Group Trip Planner: Itinerary, Budget Split & Packing" },
   description: "One shared plan for your whole group: itinerary on a live map, split expenses, a packing checklist and travel documents. Free.",
+  alternates: { canonical: "/" },
 };
 
 const EXTRAS = [
@@ -53,8 +55,35 @@ export default async function LandingPage() {
     ? <Button asChild size="lg" className="group"><Link href="/dashboard">Open your trips {arrow}</Link></Button>
     : <SignInButton size="lg" google variant="primary">Continue with Google</SignInButton>;
 
+  // Structured data for Google rich results (app listing, FAQ, brand).
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization", "@id": `${SITE_URL}/#org`, name: SITE_NAME, url: `${SITE_URL}/`,
+        logo: `${SITE_URL}/icon`,
+      },
+      {
+        "@type": "WebSite", "@id": `${SITE_URL}/#website`, name: SITE_NAME, url: `${SITE_URL}/`,
+        publisher: { "@id": `${SITE_URL}/#org` }, inLanguage: ["en", "ja", "ko", "de", "nl", "fr", "es", "zh", "pt", "ar"],
+      },
+      {
+        "@type": "WebApplication", name: SITE_NAME, url: `${SITE_URL}/`, description: SITE_DESCRIPTION,
+        applicationCategory: "TravelApplication", operatingSystem: "Web, iOS, Android",
+        offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+        featureList: ["Day-by-day itinerary on a live map", "Group expense splitting and settle-up", "Shared and personal packing lists",
+                      "Private and shared travel documents", "Real-time collaboration", "10 languages"],
+      },
+      {
+        "@type": "FAQPage",
+        mainEntity: FAQ.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })),
+      },
+    ],
+  };
+
   return (
     <div className="min-h-dvh bg-paper">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }} />
       <SiteNav signedIn={signedIn} />
 
       <main>
