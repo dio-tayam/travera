@@ -55,6 +55,7 @@ export async function updateSession(request: NextRequest) {
 
   const isProtected =
     pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/admin") ||
     (pathname.startsWith("/trips/") && !pathname.match(/^\/trips\/[^/]+$/));
 
   if (!user && isProtected) {

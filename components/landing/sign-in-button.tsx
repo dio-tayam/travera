@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createClient } from "@/lib/supabase/client";
 import { Button, type ButtonProps } from "@/components/ui/button";
 
 /** Starts Google OAuth via Supabase. Falls back to /login with an error flag if it can't start. */
 export function SignInButton({ children, google = false, ...props }: ButtonProps & { google?: boolean }) {
+  const { t } = useTranslation("common");
   const [loading, setLoading] = useState(false);
 
   async function signIn() {
@@ -20,7 +22,7 @@ export function SignInButton({ children, google = false, ...props }: ButtonProps
   return (
     <Button {...props} onClick={signIn} loading={loading}>
       {google && !loading && <GoogleIcon />}
-      {loading ? "Redirecting…" : children}
+      {loading ? t("login.redirecting") : children}
     </Button>
   );
 }

@@ -1,5 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
-import { requireTrip } from "@/lib/trip-access";
+import { loadMembers, requireTrip } from "@/lib/trip-access";
+import type { ExpenseRow, ExpenseSplitRow } from "@/types/database";
 import { BudgetClient } from "./budget-client";
 
 export const dynamic = "force-dynamic";
@@ -7,11 +7,14 @@ export const metadata = { title: "Budget" };
 
 export default async function BudgetPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
-  const [{ trip, user, canEdit }, { data: members }, { data: expenses }] = await Promise.all([
-    requireTrip(id),
-    supabase.from("trip_members").select("*, profiles(*)").eq("trip_id", id),
+  const access = await requireTrip(id);
+  const { supabase, trip, user } = access;
+
+  // RLS returns group expenses plus only this traveler's personal ones.
+  const [members, { data: expenses }, { data: myBudget }] = await Promise.all([
+    loadMembers(supabase, id),
     supabase.from("expenses").select("*").eq("trip_id", id).order("date", { ascending: false }),
+    supabase.from("member_budgets").select("amount").eq("trip_id", id).eq("user_id", user.id).maybeSingle(),
   ]);
 
   const { data: splits } = expenses?.length
@@ -19,7 +22,8 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
     : { data: [] };
 
   return (
-    <BudgetClient trip={trip} members={members ?? []} initialExpenses={expenses ?? []}
-                  initialSplits={splits ?? []} userId={user.id} canEdit={canEdit} />
+    <BudgetClient trip={trip} members={members} initialExpenses={(expenses ?? []) as ExpenseRow[]}
+                  initialSplits={(splits ?? []) as ExpenseSplitRow[]} userId={user.id} canEdit={access.canEdit}
+                  initialMyBudget={(myBudget as { amount: number } | null)?.amount ?? null} />
   );
 }

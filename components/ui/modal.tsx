@@ -2,6 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 interface ModalProps {
@@ -15,6 +16,7 @@ interface ModalProps {
 
 /** Accessible dialog: bottom sheet on phones, centred panel from `sm` up. */
 export function Modal({ open, onOpenChange, title, description, children, className }: ModalProps) {
+  const { t } = useTranslation("common");
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -39,7 +41,7 @@ export function Modal({ open, onOpenChange, title, description, children, classN
             </div>
             <Dialog.Close
               className="-mr-1.5 rounded-[var(--radius-control)] p-2 text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
-              aria-label="Close"
+              aria-label={t("common.close")}
             >
               <X size={18} />
             </Dialog.Close>

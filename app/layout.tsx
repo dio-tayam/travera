@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Onest, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { I18nProvider } from "@/components/shared/i18n-provider";
 
 const display = Bricolage_Grotesque({
   subsets: ["latin"],
@@ -51,7 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Flags that JS is running, so scroll-reveal styles never hide content when it isn't. */}
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js')" }} />
       </head>
-      <body>{children}</body>
+      <body><I18nProvider>{children}</I18nProvider></body>
     </html>
   );
 }

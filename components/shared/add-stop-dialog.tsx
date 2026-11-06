@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import { toast } from "sonner";
 import { Check, Loader2, MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -32,7 +31,7 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
   const { t } = useTranslation("common");
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<Partial<Stop>>(editingStop ?? {
-    title: prefill && prefill.title !== "Dropped pin" && prefill.title !== "Loading place…" ? prefill.title : "",
+    title: prefill && !prefill.placeholder ? prefill.title : "",
     type: "activity", address: prefill?.address ?? null, lat: prefill?.lat ?? null, lng: prefill?.lng ?? null,
     place_id: prefill?.placeId ?? null, start_time: null, duration_minutes: null, notes: null,
   });
@@ -89,8 +88,8 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
       ? await supabase.from("stops").update(payload).eq("id", editingStop.id)
       : await supabase.from("stops").insert({ ...payload, trip_id: tripId, day_id: dayId, order_index: nextOrder });
     setLoading(false);
-    if (error) { toast.error("Couldn't save this stop"); return; }
-    toast.success(editingStop ? "Stop updated" : "Stop added");
+    if (error) { toast.error(t("itinerary.errors.save")); return; }
+    toast.success(editingStop ? t("itinerary.updated") : t("itinerary.added"));
     onSaved();
     onClose();
   }
@@ -101,11 +100,11 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
       <form onSubmit={handleSubmit} className="space-y-4">
         <Field label={t("itinerary.stopTitle")} htmlFor="stop-title">
           <Input id="stop-title" required autoFocus value={form.title ?? ""}
-                 onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Sensō-ji Temple" />
+                 onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder={t("itinerary.titlePlaceholder")} maxLength={160} />
         </Field>
 
         <fieldset className="space-y-1.5">
-          <legend className="mb-1.5 text-[13px] font-medium text-ink">Type</legend>
+          <legend className="mb-1.5 text-[13px] font-medium text-ink">{t("itinerary.type")}</legend>
           <div className="grid grid-cols-3 gap-1.5">
             {STOP_TYPES.map(type => {
               const { icon: Icon, color } = STOP_META[type];
@@ -126,22 +125,22 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
         </fieldset>
 
         <Field label={t("itinerary.address")} htmlFor="stop-address" optional
-               hint={form.lat != null ? undefined : "Pick a search result to pin this stop on the map."}>
+               hint={form.lat != null ? undefined : t("itinerary.addressHint")}>
           <div className="relative">
-            <MapPin size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden="true" />
+            <MapPin size={15} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden="true" />
             <Input id="stop-address" value={search} autoComplete="off" role="combobox"
                    aria-expanded={results.length > 0} aria-controls="stop-address-results"
                    aria-activedescendant={active >= 0 ? `place-${active}` : undefined}
-                   placeholder="Search for a place or address" className="pl-9 pr-9"
+                   placeholder={t("itinerary.searchPlace")} className="ps-9 pe-9"
                    onKeyDown={onSearchKey}
                    onChange={e => {
                      typed.current = true;
                      setSearch(e.target.value);
                      setForm(f => ({ ...f, address: e.target.value || null, lat: null, lng: null, place_id: null }));
                    }} />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+            <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2">
               {searching ? <Loader2 size={15} className="animate-spin text-ink-3" />
-                : form.lat != null ? <Check size={15} className="text-positive" aria-label="Pinned on the map" /> : null}
+                : form.lat != null ? <Check size={15} className="text-positive" aria-label={t("itinerary.pinned")} /> : null}
             </span>
             {results.length > 0 && (
               <ul id="stop-address-results" role="listbox"
@@ -149,7 +148,7 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
                 {results.map((p, i) => (
                   <li key={`${p.placeId ?? ""}-${i}`} id={`place-${i}`} role="option" aria-selected={active === i}>
                     <button type="button" onClick={() => selectPlace(p)} onMouseEnter={() => setActive(i)}
-                            className={cn("flex w-full items-start gap-2.5 rounded-[8px] px-3 py-2 text-left", active === i && "bg-sunken")}>
+                            className={cn("flex w-full items-start gap-2.5 rounded-[8px] px-3 py-2 text-start", active === i && "bg-sunken")}>
                       <MapPin size={14} className="mt-0.5 shrink-0 text-ink-3" aria-hidden="true" />
                       <span className="min-w-0">
                         <span className="block truncate text-[13px] text-ink">{p.title}</span>
@@ -158,7 +157,7 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
                     </button>
                   </li>
                 ))}
-                <li className="px-3 pb-1 pt-1.5 text-[10.5px] text-ink-3">Search by Photon · © OpenStreetMap contributors</li>
+                <li className="px-3 pb-1 pt-1.5 text-[10.5px] text-ink-3">{t("itinerary.attribution")}</li>
               </ul>
             )}
           </div>
@@ -179,7 +178,7 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
         <Field label={t("itinerary.notes")} htmlFor="stop-notes" optional>
           <Textarea id="stop-notes" rows={3} value={form.notes ?? ""}
                     onChange={e => setForm(f => ({ ...f, notes: e.target.value || null }))}
-                    placeholder="Booking reference, opening hours, who's joining…" />
+                    placeholder={t("itinerary.notesPlaceholder")} maxLength={2000} />
         </Field>
 
         <ModalActions>

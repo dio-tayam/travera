@@ -1,5 +1,8 @@
+"use client";
+
 import { forwardRef } from "react";
 import { ChevronDown } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 const controlBase = [
@@ -40,11 +43,12 @@ export function Field({ label, htmlFor, hint, optional, children, className }: {
   label: string; htmlFor?: string; hint?: string; optional?: boolean;
   children: React.ReactNode; className?: string;
 }) {
+  const { t } = useTranslation("common");
   return (
     <div className={cn("space-y-1.5", className)}>
       <label htmlFor={htmlFor} className="flex items-baseline justify-between gap-2 text-[13px] font-medium text-ink">
         <span>{label}</span>
-        {optional && <span className="text-[12px] font-normal text-ink-3">Optional</span>}
+        {optional && <span className="text-[12px] font-normal text-ink-3">{t("common.optional")}</span>}
       </label>
       {children}
       {hint && <p className="text-[12px] text-ink-3">{hint}</p>}

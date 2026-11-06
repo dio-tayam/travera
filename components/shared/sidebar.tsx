@@ -4,11 +4,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import { ArrowLeft, LogOut, PanelLeftClose, PanelLeftOpen, Plus, Plane } from "lucide-react";
 import { cn, formatDateRange, formatShortDate } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { LanguageSwitcher } from "./language-switcher";
+import { ModeSwitcher } from "./mode-switcher";
 import { Logo, LogoMark } from "@/components/ui/logo";
 import { Avatar } from "@/components/ui/primitives";
 import { tripNavItems, isActive, type TripSummary } from "./nav-items";
@@ -26,6 +26,7 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
   const [collapsed, setCollapsed] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [recent, setRecent] = useState<RecentTrip[]>([]);
+  const [tripCount, setTripCount] = useState(0);
 
   useEffect(() => {
     try { setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1"); } catch { /* storage unavailable */ }
@@ -44,7 +45,8 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
       ]);
       if (cancelled) return;
       setProfile(p);
-      const ids = (rows ?? []).map(r => r.trip_id);
+      const ids = (rows ?? []).map((r: { trip_id: string }) => r.trip_id);
+      setTripCount(ids.length);
       if (!ids.length) return;
       const { data: trips } = await supabase.from("trips")
         .select("id,title,start_date").in("id", ids)
@@ -85,7 +87,7 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
   return (
     <aside
       className={cn(
-        "sticky top-0 z-20 hidden h-dvh shrink-0 flex-col border-r border-line bg-paper lg:flex",
+        "sticky top-0 z-20 hidden h-dvh shrink-0 flex-col border-e border-line bg-paper lg:flex",
         "transition-[width] duration-200 ease-out",
         collapsed ? "w-[68px]" : "w-[252px]"
       )}
@@ -94,15 +96,15 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
       <div className={cn("flex h-16 items-center", collapsed ? "justify-center" : "justify-between px-5")}>
         {collapsed ? (
           // Collapsed: the logo turns into the expand button on hover/focus, in the same spot as "collapse".
-          <button onClick={toggle} aria-label="Expand sidebar (⌘B)" title="Expand sidebar (⌘B)"
+          <button onClick={toggle} aria-label={t("sidebar.expand")} title={t("sidebar.expand")}
                   className="group/expand relative grid h-10 w-10 place-items-center rounded-[var(--radius-control)] transition-colors hover:bg-sunken">
             <LogoMark size={26} className="transition-opacity group-hover/expand:opacity-0 group-focus-visible/expand:opacity-0" />
             <PanelLeftOpen size={18} className="absolute text-ink opacity-0 transition-opacity group-hover/expand:opacity-100 group-focus-visible/expand:opacity-100" />
           </button>
         ) : (
           <>
-            <Link href="/dashboard" aria-label="Travera home"><Logo /></Link>
-            <button onClick={toggle} aria-label="Collapse sidebar (⌘B)" title="Collapse sidebar (⌘B)"
+            <Link href="/dashboard" aria-label={t("sidebar.home")}><Logo /></Link>
+            <button onClick={toggle} aria-label={t("sidebar.collapse")} title={t("sidebar.collapse")}
                     className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-sunken hover:text-ink">
               <PanelLeftClose size={16} />
             </button>
@@ -110,16 +112,16 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto scrollbar-none px-3 pb-4" aria-label="Main">
+      <nav className="flex-1 overflow-y-auto scrollbar-none px-3 pb-4" aria-label={t("sidebar.main")}>
         {trip ? (
           <>
-            <NavLink href="/dashboard" icon={ArrowLeft} label="All trips" collapsed={collapsed} muted />
+            <NavLink href="/dashboard" icon={ArrowLeft} label={t("sidebar.allTrips")} collapsed={collapsed} muted />
             {!collapsed && (
               <div className="mx-2 mb-3 mt-5">
-                <p className="eyebrow">Current trip</p>
+                <p className="eyebrow">{t("sidebar.currentTrip")}</p>
                 <p className="mt-1.5 line-clamp-2 text-[15px] font-semibold leading-snug text-ink">{trip.title}</p>
                 {trip.start_date && trip.end_date && (
-                  <p className="mt-1 font-mono text-[11px] text-ink-3">
+                  <p suppressHydrationWarning className="mt-1 font-mono text-[11px] text-ink-3">
                     {formatDateRange(trip.start_date, trip.end_date)}
                   </p>
                 )}
@@ -152,7 +154,7 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
 
             {!collapsed && recent.length > 0 && (
               <div className="mt-6">
-                <p className="eyebrow mx-2 mb-2">Recent</p>
+                <p className="eyebrow mx-2 mb-2">{t("sidebar.recent")}</p>
                 <ul className="space-y-0.5">
                   {recent.map(r => (
                     <li key={r.id}>
@@ -161,7 +163,7 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line-strong" aria-hidden="true" />
                         <span className="flex-1 truncate">{r.title}</span>
                         {r.start_date && (
-                          <span className="font-mono text-[10.5px] text-ink-3">{formatShortDate(r.start_date)}</span>
+                          <span suppressHydrationWarning className="font-mono text-[10.5px] text-ink-3">{formatShortDate(r.start_date)}</span>
                         )}
                       </Link>
                     </li>
@@ -177,6 +179,7 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
       <div className="space-y-1 border-t border-line p-3">
         {collapsed ? (
           <>
+            <ModeSwitcher variant="compact" className="mx-auto" />
             <LanguageSwitcher variant="compact" side="top" className="mx-auto" />
             <button onClick={signOut} aria-label={t("nav.signOut")} title={t("nav.signOut")}
                     className="mx-auto grid h-9 w-9 place-items-center rounded-[var(--radius-control)] text-ink-3 transition-colors hover:bg-sunken hover:text-ink">
@@ -185,12 +188,13 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
           </>
         ) : (
           <>
+            <ModeSwitcher />
             <LanguageSwitcher side="top" />
             <div className="flex items-center gap-2.5 rounded-[var(--radius-control)] px-2 py-2">
               <Avatar name={profile?.display_name} src={profile?.avatar_url} size={30} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13px] font-medium text-ink">{profile?.display_name ?? " "}</p>
-                <p className="font-mono text-[10.5px] text-ink-3">{recent.length} {recent.length === 1 ? "trip" : "trips"}</p>
+                <p className="font-mono text-[10.5px] text-ink-3">{t("sidebar.tripCount", { count: tripCount })}</p>
               </div>
               <button onClick={signOut} aria-label={t("nav.signOut")} title={t("nav.signOut")}
                       className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-sunken hover:text-negative">
@@ -221,7 +225,7 @@ function NavLink({ href, icon: Icon, label, active, collapsed, muted }: {
           : muted ? "text-ink-3 hover:text-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
       )}
     >
-      {active && <span className="absolute -left-3 top-2 bottom-2 w-[3px] rounded-r-full bg-accent" aria-hidden="true" />}
+      {active && <span className="absolute -start-3 top-2 bottom-2 w-[3px] rounded-e-full bg-accent" aria-hidden="true" />}
       <Icon size={16} aria-hidden="true" className={cn("shrink-0", active && "text-accent")} />
       {!collapsed && <span className="truncate">{label}</span>}
     </Link>

@@ -1,15 +1,18 @@
 import { redirect } from "next/navigation";
-import { getUser } from "@/lib/supabase/server";
-import { I18nProvider } from "@/components/shared/i18n-provider";
+import { createClient, getUser } from "@/lib/supabase/server";
 import { Toaster } from "sonner";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  if (!(await getUser())) redirect("/login");
+  const [user, supabase] = await Promise.all([getUser(), createClient()]);
+  if (!user) redirect("/login");
+  // Suspended accounts are also blocked by RLS; this just shows them why.
+  const { data: suspended } = await supabase.rpc("is_suspended");
+  if (suspended === true) redirect("/suspended");
 
   return (
-    <I18nProvider>
+    <>
       {children}
       <Toaster position="bottom-right" closeButton toastOptions={{ duration: 3500 }} offset={20} mobileOffset={{ bottom: 84 }} />
-    </I18nProvider>
+    </>
   );
 }

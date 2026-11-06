@@ -7,7 +7,6 @@ import {
   Bike, Car, Clock, ExternalLink, Footprints, LocateFixed, MapPinOff, MapPinned, Maximize2, Navigation, Plus, X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import type { Database } from "@/types/database";
 import { STOP_META } from "@/lib/categories";
 import { cn, getStopTypeColor } from "@/lib/utils";
@@ -21,7 +20,7 @@ import { MapPlaceholder } from "./map-placeholder";
 type Stop = Database["public"]["Tables"]["stops"]["Row"];
 
 /** A place picked on the map, ready to become a stop. */
-export type PlaceDraft = { title: string; address: string | null; lat: number; lng: number; placeId: string | null };
+export type PlaceDraft = { title: string; address: string | null; lat: number; lng: number; placeId: string | null; placeholder?: boolean };
 
 interface TripMapProps {
   /** The day's stops in order. Stops without coordinates keep their number but get no pin. */
@@ -36,10 +35,10 @@ interface TripMapProps {
 }
 
 const DEFAULT_CENTER: [number, number] = [120.9842, 14.5995]; // Manila (lng, lat)
-const MODES: { mode: TravelMode; icon: typeof Car; label: string }[] = [
-  { mode: "WALKING", icon: Footprints, label: "Walk" },
-  { mode: "CYCLING", icon: Bike, label: "Bike" },
-  { mode: "DRIVING", icon: Car, label: "Drive" },
+const MODES: { mode: TravelMode; icon: typeof Car; key: string }[] = [
+  { mode: "WALKING", icon: Footprints, key: "walk" },
+  { mode: "CYCLING", icon: Bike, key: "bike" },
+  { mode: "DRIVING", icon: Car, key: "drive" },
 ];
 const MODE_KEY = "travera:travel-mode";
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -54,6 +53,8 @@ function pinHtml(n: number, color: string) {
 
 export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: TripMapProps) {
   const { t } = useTranslation("common");
+  const tRef = useRef(t);
+  tRef.current = t;
   const containerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MLMap | null>(null);
   const [failed, setFailed] = useState(false);
@@ -165,11 +166,11 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
       selectRef.current(null);
       if (!onAddRef.current) { setPending(null); return; }
       const at = { lat: e.lngLat.lat, lng: e.lngLat.lng };
-      setPending({ title: "Dropped pin", address: null, ...at, placeId: null });
+      setPending({ title: tRef.current("map.droppedPin"), address: null, ...at, placeId: null, placeholder: true });
       reverseGeocode(at).then(p => {
         if (!p) return;
         setPending(cur => cur && cur.lat === at.lat && cur.lng === at.lng
-          ? { ...cur, title: p.title, address: p.address, placeId: p.placeId } : cur);
+          ? { ...cur, title: p.title, address: p.address, placeId: p.placeId, placeholder: false } : cur);
       }).catch(() => { /* keep the dropped pin */ });
     });
 
@@ -197,13 +198,13 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
       }
       entry.marker.setLngLat([stop.lng!, stop.lat!]);
       entry.el.innerHTML = `<span class="trip-pin-inner">${pinHtml(n, color)}</span>`;
-      entry.el.setAttribute("aria-label", `Stop ${n}: ${stop.title}`);
+      entry.el.setAttribute("aria-label", `${t("itinerary.stopN", { n })}: ${stop.title}`);
       entry.el.title = stop.title;
       entry.el.dataset.selected = stop.id === selected ? "1" : "0";
       entry.el.style.zIndex = stop.id === selected ? "10" : String(n);
     });
     markers.current.forEach((v, id) => { if (!live.has(id)) { v.marker.remove(); markers.current.delete(id); } });
-  }, [map, located, selected]);
+  }, [map, located, selected, t]);
 
   useEffect(() => () => {
     markers.current.forEach(v => v.marker.remove()); markers.current.clear();
@@ -288,7 +289,7 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
   useEffect(() => {
     if (!tracking) { setMe(null); centeredOnMe.current = false; return; }
     if (!("geolocation" in navigator)) {
-      setNotice({ tone: "negative", text: "Location isn't available in this browser." });
+      setNotice({ tone: "negative", text: t("map.noGeo") });
       setTracking(false);
       return;
     }
@@ -296,8 +297,8 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
       p => setMe({ pos: { lat: p.coords.latitude, lng: p.coords.longitude }, accuracy: p.coords.accuracy }),
       err => {
         setNotice({ tone: "negative", text: err.code === err.PERMISSION_DENIED
-          ? "Location access was blocked. Allow it in your browser settings to use live location."
-          : "Couldn't get your location. Try again outdoors or check your connection." });
+          ? t("map.geoBlocked")
+          : t("map.geoFailed") });
         setTracking(false);
       },
       { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 }
@@ -326,14 +327,14 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
       if (!meMarker.current) {
         const el = document.createElement("div");
         el.className = "trip-me";
-        el.setAttribute("aria-label", "You are here");
+        el.setAttribute("aria-label", t("map.youAreHere"));
         meMarker.current = new maplibregl.Marker({ element: el }).setLngLat([me.pos.lng, me.pos.lat]).addTo(map);
       } else meMarker.current.setLngLat([me.pos.lng, me.pos.lat]);
       if (!centeredOnMe.current) { centeredOnMe.current = true; map.easeTo({ center: [me.pos.lng, me.pos.lat], duration: 600 }); }
       for (const { stop } of located) {
         if (haversine(me.pos, { lat: stop.lat!, lng: stop.lng! }) <= GEOFENCE_METERS && !arrivedAt.current.has(stop.id)) {
           arrivedAt.current.add(stop.id);
-          setNotice({ tone: "positive", text: `You've arrived at ${stop.title}.` });
+          setNotice({ tone: "positive", text: t("map.arrived", { name: stop.title }) });
           select(stop.id);
           navigator.vibrate?.(80);
           break;
@@ -370,8 +371,8 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
       <div className="grid h-full w-full place-items-center bg-sunken grid-texture p-6 text-center">
         <div>
           <MapPinOff size={20} className="mx-auto text-ink-3" />
-          <p className="mt-2 text-[13px] text-ink-2">The map couldn&apos;t be loaded.</p>
-          <p className="mt-1 text-[12px] text-ink-3">Check your connection, or turn on hardware acceleration in your browser settings.</p>
+          <p className="mt-2 text-[13px] text-ink-2">{t("map.failed")}</p>
+          <p className="mt-1 text-[12px] text-ink-3">{t("map.failedHint")}</p>
         </div>
       </div>
     );
@@ -401,15 +402,15 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
               <MapPinned size={15} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13.5px] font-semibold text-ink">{pending.title}</p>
-                <p className="mt-0.5 line-clamp-2 text-[12px] text-ink-3">{pending.address ?? "Looking up address…"}</p>
+                <p className="mt-0.5 line-clamp-2 text-[12px] text-ink-3">{pending.address ?? t("map.lookingUp")}</p>
               </div>
-              <button onClick={() => setPending(null)} aria-label="Dismiss" className="-mr-1 -mt-1 rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink">
+              <button onClick={() => setPending(null)} aria-label={t("common.dismiss")} className="-mr-1 -mt-1 rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink">
                 <X size={14} />
               </button>
             </div>
             <button onClick={() => { onAddPlace?.(pending); setPending(null); }}
                     className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-[10px] bg-ink text-[13px] font-medium text-paper hover:bg-[#2a2d35]">
-              <Plus size={14} /> Add to this day
+              <Plus size={14} /> {t("map.addToDay")}
             </button>
           </div>
         </div>
@@ -418,26 +419,26 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
       {/* ── Toolbar ─────────────────────────────────────────────────── */}
       <div className="pointer-events-none absolute right-3 top-3 z-[6] flex flex-wrap items-center justify-end gap-2">
         {located.length >= 2 && (
-          <div role="radiogroup" aria-label="Travel mode"
+          <div role="radiogroup" aria-label={t("map.travelMode")}
                className="pointer-events-auto flex rounded-[12px] border border-line bg-surface/95 p-1 shadow-[0_8px_24px_-14px_rgb(22_24_29/0.4)] backdrop-blur">
-            {MODES.map(({ mode: m, icon: Icon, label }) => (
+            {MODES.map(({ mode: m, icon: Icon, key }) => { const label = t(`map.modes.${key}`); return (
               <button key={m} role="radio" aria-checked={mode === m} onClick={() => changeMode(m)} title={label}
                       className={cn("flex h-8 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-medium transition-colors",
                                     mode === m ? "bg-ink text-paper" : "text-ink-2 hover:bg-sunken hover:text-ink")}>
                 <Icon size={14} aria-hidden="true" /><span className="hidden sm:inline">{label}</span>
               </button>
-            ))}
+            ); })}
           </div>
         )}
         <div className="pointer-events-auto flex rounded-[12px] border border-line bg-surface/95 p-1 shadow-[0_8px_24px_-14px_rgb(22_24_29/0.4)] backdrop-blur">
-          <ToolButton label={tracking ? "Stop live location" : "Show my location"} active={tracking} onClick={() => setTracking(v => !v)}>
+          <ToolButton label={tracking ? t("map.stopLive") : t("map.showLocation")} active={tracking} onClick={() => setTracking(v => !v)}>
             <LocateFixed size={15} />
           </ToolButton>
-          <ToolButton label="Fit all stops" onClick={fitAll} disabled={located.length === 0 && !me}>
+          <ToolButton label={t("map.fitAll")} onClick={fitAll} disabled={located.length === 0 && !me}>
             <Maximize2 size={15} />
           </ToolButton>
           {located.length > 0 && (
-            <a href={dayUrl} target="_blank" rel="noopener noreferrer" title="Open day in Google Maps" aria-label="Open day in Google Maps"
+            <a href={dayUrl} target="_blank" rel="noopener noreferrer" title={t("map.openGoogle")} aria-label={t("map.openGoogle")}
                className="grid h-8 w-8 place-items-center rounded-[8px] text-ink-2 transition-colors hover:bg-sunken hover:text-ink">
               <ExternalLink size={15} />
             </a>
@@ -451,7 +452,7 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
              className={cn("animate-rise absolute left-1/2 top-16 z-[7] flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2.5 rounded-full border py-2 pl-3.5 pr-2 text-[12.5px] shadow-[0_12px_30px_-14px_rgb(22_24_29/0.45)]",
                            notice.tone === "positive" ? "border-positive/30 bg-positive-soft text-positive" : "border-negative/30 bg-negative-soft text-negative")}>
           <span className="truncate font-medium">{notice.text}</span>
-          <button onClick={() => setNotice(null)} aria-label="Dismiss" className="rounded-full p-1 hover:bg-black/5"><X size={13} /></button>
+          <button onClick={() => setNotice(null)} aria-label={t("common.dismiss")} className="rounded-full p-1 hover:bg-black/5"><X size={13} /></button>
         </div>
       )}
 
@@ -460,8 +461,8 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
         <div className="rounded-[12px] border border-line bg-surface/95 px-3 py-2 shadow-[0_8px_24px_-14px_rgb(22_24_29/0.4)] backdrop-blur">
           {located.length === 0 ? (
             <p className="text-[12px] text-ink-2">
-              {stops.length === 0 ? "No stops yet." : "None of today's stops have a location yet."}
-              {onAddPlace && <span className="text-ink-3"> Click the map to add a place.</span>}
+              {stops.length === 0 ? t("map.noStops") : t("map.noLocations")}
+              {onAddPlace && <span className="text-ink-3"> {t("map.clickToAdd")}</span>}
             </p>
           ) : (
             <>
@@ -469,12 +470,12 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
                 <Clock size={12} className="text-ink-3" aria-hidden="true" />
                 {legList.length > 0
                   ? <>{anyEstimated && "≈ "}{formatTravelTime(totals.s)} · {formatDistance(totals.m)}</>
-                  : `${located.length} ${located.length === 1 ? "stop" : "stops"}`}
+                  : t("itinerary.stopsCount", { count: located.length })}
               </p>
               <p className="mt-0.5 text-[11px] text-ink-3">
-                {flights > 0 ? `incl. ${flights} ${flights === 1 ? "flight" : "flights"} · ` : ""}
-                {stops.length > located.length ? `${stops.length - located.length} without location · ` : ""}
-                {tracking && me ? `GPS ±${Math.round(me.accuracy)} m` : onAddPlace ? "Click the map to add a place" : `${located.length} stops on the map`}
+                {flights > 0 ? `${t("map.inclFlights", { count: flights })} · ` : ""}
+                {stops.length > located.length ? `${t("map.withoutLocation", { count: stops.length - located.length })} · ` : ""}
+                {tracking && me ? `GPS ±${Math.round(me.accuracy)} m` : onAddPlace ? t("map.clickToAdd") : t("map.onMap", { count: located.length })}
               </p>
             </>
           )}
@@ -499,6 +500,7 @@ function ToolButton({ label, active, disabled, onClick, children }: {
 function StopPopover({ stop, n, mode, distance, onClose, typeLabel }: {
   stop: Stop; n: number; mode: TravelMode; distance: number | null; onClose: () => void; typeLabel: string;
 }) {
+  const { t } = useTranslation("common");
   const meta = STOP_META[stop.type] ?? STOP_META.activity;
   const Icon = meta.icon;
   const at = { lat: stop.lat!, lng: stop.lng! };
@@ -516,20 +518,20 @@ function StopPopover({ stop, n, mode, distance, onClose, typeLabel }: {
           {distance != null && (
             <p className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#2f6fed]/10 px-2 py-0.5 text-[11px] font-medium text-[#2f6fed]">
               <Navigation size={10} aria-hidden="true" />
-              {distance <= GEOFENCE_METERS ? "You're here" : `${formatDistance(distance)} from you`}
+              {distance <= GEOFENCE_METERS ? t("map.youreHere") : t("map.fromYou", { distance: formatDistance(distance) })}
             </p>
           )}
         </div>
-        <button onClick={onClose} aria-label="Close" className="-mr-1 -mt-1 rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink"><X size={14} /></button>
+        <button onClick={onClose} aria-label={t("common.close")} className="-mr-1 -mt-1 rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink"><X size={14} /></button>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <a href={googleMapsDirectionsTo(at, mode)} target="_blank" rel="noopener noreferrer"
            className="flex h-8 items-center justify-center gap-1.5 rounded-[9px] bg-ink text-[12px] font-medium text-paper hover:bg-[#2a2d35]">
-          <Navigation size={12} /> Directions
+          <Navigation size={12} /> {t("map.directions")}
         </a>
         <a href={openStreetMapUrl(at)} target="_blank" rel="noopener noreferrer"
            className="flex h-8 items-center justify-center gap-1.5 rounded-[9px] border border-line-strong text-[12px] font-medium text-ink hover:bg-sunken">
-          <ExternalLink size={12} /> View on map
+          <ExternalLink size={12} /> {t("map.viewOnMap")}
         </a>
       </div>
     </div>

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { tripNavItems, isActive } from "./nav-items";
 
@@ -13,7 +12,7 @@ export function MobileNav({ tripId }: { tripId: string }) {
   const pathname = usePathname();
 
   return (
-    <nav aria-label="Trip sections"
+    <nav aria-label={t("sidebar.sections")}
          className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper/95 backdrop-blur-md safe-bottom lg:hidden">
       <ul className="mx-auto flex max-w-lg">
         {tripNavItems(tripId).map(item => {

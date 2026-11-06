@@ -1,35 +1,34 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import { toast } from "sonner";
 import {
-  ArrowRight, Check, CheckCircle2, Download, Pencil, Plus, Receipt, Search, Trash2, X,
+  ArrowRight, Check, CheckCircle2, Download, Lock, Pencil, Plus, Receipt, Search, Trash2, User, Users, X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { cn, formatCurrency, formatShortDate, parseDate } from "@/lib/utils";
+import { useRealtime } from "@/lib/use-realtime";
+import { SpendingChart, type DateRange } from "@/components/trip/spending-chart";
+import { cn, formatCurrency, formatShortDate, parseDate, splitByWeights, toISODate } from "@/lib/utils";
 import { EXPENSE_CATEGORIES, EXPENSE_META } from "@/lib/categories";
+import type { Member } from "@/lib/types";
+import type { ExpenseRow, ExpenseSplitRow, Scope, TripRow } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalActions } from "@/components/ui/modal";
 import { Field, FormError, Input, Select } from "@/components/ui/field";
+import { Segmented } from "@/components/ui/segmented";
 import { Avatar, EmptyState, PageBody, PageHeader, Progress, SectionTitle } from "@/components/ui/primitives";
-import type { Database } from "@/types/database";
 
-type Trip = Database["public"]["Tables"]["trips"]["Row"];
-type Expense = Database["public"]["Tables"]["expenses"]["Row"];
-type Split = Database["public"]["Tables"]["expense_splits"]["Row"];
-type Member = {
-  user_id: string; role: string;
-  profiles: Database["public"]["Tables"]["profiles"]["Row"] | null;
-};
+type Expense = ExpenseRow;
+type Split = ExpenseSplitRow;
+type Tab = "group" | "mine";
 
 /**
- * Net balances from *unsettled* splits only: each split means `user_id` owes `share_amount` to the payer.
+ * Net balances from *unsettled* group splits only: each split means `user_id` owes `share_amount` to the payer.
  * Positive = others owe you; negative = you owe.
  */
 function computeBalances(expenses: Expense[], splits: Split[]) {
-  const payerOf = new Map(expenses.map(e => [e.id, e.paid_by]));
+  const payerOf = new Map(expenses.filter(e => e.scope === "group").map(e => [e.id, e.paid_by]));
   const bal: Record<string, number> = {};
   for (const s of splits) {
     const payer = payerOf.get(s.expense_id);
@@ -41,136 +40,125 @@ function computeBalances(expenses: Expense[], splits: Split[]) {
   return bal;
 }
 
-/** Greedy minimal-transfer settlement plan. */
-function computeSettlements(bal: Record<string, number>) {
-  const debtors = Object.entries(bal).filter(([, b]) => b < -0.01).map(([id, b]) => ({ id, b: -b })).sort((a, b) => b.b - a.b);
-  const creditors = Object.entries(bal).filter(([, b]) => b > 0.01).map(([id, b]) => ({ id, b })).sort((a, b) => b.b - a.b);
-  const out: { from: string; to: string; amount: number }[] = [];
-  for (const d of debtors) {
-    for (const c of creditors) {
-      if (d.b < 0.01) break;
-      if (c.b < 0.01) continue;
-      const amt = Math.min(d.b, c.b);
-      out.push({ from: d.id, to: c.id, amount: Math.round(amt * 100) / 100 });
-      d.b -= amt; c.b -= amt;
-    }
+/**
+ * Who pays whom: unsettled group debts netted per pair of travelers (A owes B 10, B owes A 4 → A pays B 6).
+ * Every suggestion maps to real splits, so settle_debt() can mark exactly those as paid.
+ */
+function computeSettlements(expenses: Expense[], splits: Split[]) {
+  const net = pairwiseNet(expenses, splits);
+  return Object.entries(net)
+    .map(([k, amount]) => { const [a, b] = k.split("|"); return amount > 0 ? { from: a, to: b, amount } : { from: b, to: a, amount: -amount }; })
+    .map(s => ({ ...s, amount: Math.round(s.amount * 100) / 100 }))
+    .filter(s => s.amount > 0.009)
+    .sort((a, b) => b.amount - a.amount);
+}
+
+/** Keyed "a|b" (a < b): positive = a owes b, negative = b owes a. */
+function pairwiseNet(expenses: Expense[], splits: Split[]) {
+  const payerOf = new Map(expenses.filter(e => e.scope === "group").map(e => [e.id, e.paid_by]));
+  const net: Record<string, number> = {};
+  for (const s of splits) {
+    const payer = payerOf.get(s.expense_id);
+    if (!payer || s.is_settled || s.user_id === payer) continue;
+    const [a, b] = s.user_id < payer ? [s.user_id, payer] : [payer, s.user_id];
+    net[`${a}|${b}`] = (net[`${a}|${b}`] ?? 0) + (s.user_id === a ? 1 : -1) * Number(s.share_amount);
   }
-  return out;
+  return net;
 }
 
 interface Props {
-  trip: Trip; members: Member[];
+  trip: TripRow; members: Member[];
   initialExpenses: Expense[]; initialSplits: Split[];
-  userId: string; canEdit: boolean;
+  userId: string; canEdit: boolean; initialMyBudget: number | null;
 }
 
-export function BudgetClient({ trip, members, initialExpenses, initialSplits, userId, canEdit }: Props) {
+export function BudgetClient({ trip, members, initialExpenses, initialSplits, userId, canEdit, initialMyBudget }: Props) {
   const { t } = useTranslation("common");
   const supabase = useMemo(() => createClient(), []);
   const [expenses, setExpenses] = useState(initialExpenses);
   const [splits, setSplits] = useState(initialSplits);
-  const [editor, setEditor] = useState<{ open: boolean; expense: Expense | null }>({ open: false, expense: null });
-  const [catFilter, setCatFilter] = useState<string | null>(null);
-  const [payerFilter, setPayerFilter] = useState<string>("all");
-  const [query, setQuery] = useState("");
-  const [settling, setSettling] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("group");
+  const [editor, setEditor] = useState<{ open: boolean; expense: Expense | null; scope: Scope }>({ open: false, expense: null, scope: "group" });
+  const [myBudget, setMyBudget] = useState<number | null>(initialMyBudget);
 
+  // Refetch everything this page shows. Guarded so a slow, older response never overwrites a newer one.
+  const seq = useRef(0);
   async function refresh() {
-    const { data: exp } = await supabase.from("expenses").select("*").eq("trip_id", trip.id).order("date", { ascending: false });
-    if (!exp) return;
-    setExpenses(exp);
-    if (exp.length === 0) { setSplits([]); return; }
-    const { data: sp } = await supabase.from("expense_splits").select("*").in("expense_id", exp.map(e => e.id));
-    if (sp) setSplits(sp);
+    const n = ++seq.current;
+    const [{ data: exp, error }, { data: mb }] = await Promise.all([
+      supabase.from("expenses").select("*").eq("trip_id", trip.id).order("date", { ascending: false }),
+      supabase.from("member_budgets").select("amount").eq("trip_id", trip.id).eq("user_id", userId).maybeSingle(),
+    ]);
+    if (error || !exp || n !== seq.current) return;
+    const { data: sp } = exp.length
+      ? await supabase.from("expense_splits").select("*").in("expense_id", exp.map((e: Expense) => e.id))
+      : { data: [] };
+    if (n !== seq.current) return;
+    setExpenses(exp as Expense[]);
+    if (sp) setSplits(sp as Split[]);
+    setMyBudget((mb as { amount: number } | null)?.amount ?? null);
   }
 
-  useEffect(() => {
-    const ch = supabase.channel(`expenses:${trip.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "expenses", filter: `trip_id=eq.${trip.id}` }, () => refresh())
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [trip.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Live: anyone's group expenses/splits, plus my own personal expenses & budget (RLS filters the rest).
+  const live = useRealtime(`budget:${trip.id}`, [
+    { table: "expenses", filter: `trip_id=eq.${trip.id}` },
+    { table: "expense_splits" },
+    { table: "member_budgets", filter: `trip_id=eq.${trip.id}` },
+  ], refresh);
 
-  const cur = trip.currency;
+  /** Show a saved expense instantly, then confirm with a refetch. */
+  function applySaved(exp: Expense, expSplits: Split[]) {
+    setExpenses(p => [exp, ...p.filter(e => e.id !== exp.id)].sort((a, b) => b.date.localeCompare(a.date)));
+    setSplits(p => [...p.filter(s => s.expense_id !== exp.id), ...expSplits]);
+    refresh();
+  }
+
   const member = (uid: string) => members.find(m => m.user_id === uid)?.profiles;
-  const nameOf = (uid: string) => uid === userId ? "You" : member(uid)?.display_name?.split(" ")[0] ?? "Traveler";
+  const nameOf = (uid: string) => uid === userId ? t("common.you") : member(uid)?.display_name?.split(" ")[0] ?? t("common.traveler");
 
-  const totalSpent = expenses.reduce((s, e) => s + Number(e.amount), 0);
-  const budget = trip.total_budget ?? 0;
-  const remaining = budget - totalSpent;
-  const spentPct = budget > 0 ? (totalSpent / budget) * 100 : 0;
-  const myShare = splits.filter(s => s.user_id === userId).reduce((s, sp) => s + Number(sp.share_amount), 0);
-
-  const balances = useMemo(() => computeBalances(expenses, splits), [expenses, splits]);
-  const settlements = useMemo(() => computeSettlements({ ...balances }), [balances]);
-  const settledCount = splits.filter(s => s.is_settled).length;
-
-  const people = useMemo(() => members.map(m => {
-    const paid = expenses.filter(e => e.paid_by === m.user_id).reduce((s, e) => s + Number(e.amount), 0);
-    const share = splits.filter(s => s.user_id === m.user_id).reduce((s, sp) => s + Number(sp.share_amount), 0);
-    return { id: m.user_id, paid, share, balance: balances[m.user_id] ?? 0 };
-  }), [members, expenses, splits, balances]);
-
-  const byCategory = useMemo(() => {
-    const totals: Record<string, number> = {};
-    expenses.forEach(e => { totals[e.category] = (totals[e.category] ?? 0) + Number(e.amount); });
-    return Object.entries(totals).sort((a, b) => b[1] - a[1]);
-  }, [expenses]);
-
-  const byDay = useMemo(() => {
-    const totals: Record<string, number> = {};
-    expenses.forEach(e => { totals[e.date] = (totals[e.date] ?? 0) + Number(e.amount); });
-    return Object.entries(totals).sort((a, b) => a[0].localeCompare(b[0])).slice(-14);
-  }, [expenses]);
-  const dayMax = Math.max(1, ...byDay.map(([, v]) => v));
-  const dailyBudget = budget > 0 && trip.start_date && trip.end_date
-    ? budget / Math.max(1, Math.round((parseDate(trip.end_date).getTime() - parseDate(trip.start_date).getTime()) / 86_400_000) + 1)
-    : null;
-
-  const visible = expenses.filter(e =>
-    (!catFilter || e.category === catFilter) &&
-    (payerFilter === "all" || e.paid_by === payerFilter) &&
-    (!query.trim() || (e.description ?? t(`budget.categories.${e.category}`)).toLowerCase().includes(query.trim().toLowerCase()))
-  );
+  const group = useMemo(() => expenses.filter(e => e.scope !== "personal"), [expenses]);
+  const personal = useMemo(() => expenses.filter(e => e.scope === "personal" && e.created_by === userId), [expenses, userId]);
 
   async function removeExpense(id: string) {
     const prev = { expenses, splits };
     setExpenses(p => p.filter(e => e.id !== id));
     setSplits(p => p.filter(s => s.expense_id !== id));
-    await supabase.from("expense_splits").delete().eq("expense_id", id);
-    const { error } = await supabase.from("expenses").delete().eq("id", id);
-    if (error) { setExpenses(prev.expenses); setSplits(prev.splits); toast.error("Couldn't remove the expense"); return; }
-    toast.success("Expense removed");
-  }
-
-  /** Marks every open split where `from` owes `to` as settled. */
-  async function settle(from: string, to: string) {
-    const ids = splits.filter(s => !s.is_settled && s.user_id === from &&
-      expenses.find(e => e.id === s.expense_id)?.paid_by === to).map(s => s.id);
-    if (!ids.length) return;
-    setSettling(`${from}>${to}`);
-    const { error } = await supabase.from("expense_splits").update({ is_settled: true }).in("id", ids);
-    setSettling(null);
-    if (error) { toast.error("Couldn't record the payment"); return; }
-    setSplits(p => p.map(s => ids.includes(s.id) ? { ...s, is_settled: true } : s));
-    toast.success(`${nameOf(from)} → ${nameOf(to)} marked as paid`);
+    const { error } = await supabase.from("expenses").delete().eq("id", id); // splits cascade
+    if (error) { setExpenses(prev.expenses); setSplits(prev.splits); toast.error(t("budget.removeFailed")); return; }
+    toast.success(t("budget.removed"));
   }
 
   function exportCsv() {
     const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const rows = [["Date", "Description", "Category", "Paid by", "Amount", "Currency", "Split between"]];
-    expenses.forEach(e => rows.push([
-      e.date, e.description ?? "", e.category, member(e.paid_by)?.display_name ?? "Traveler",
-      String(e.amount), e.currency,
-      splits.filter(s => s.expense_id === e.id).map(s => member(s.user_id)?.display_name ?? "Traveler").join("; "),
-    ]));
-    const blob = new Blob([rows.map(r => r.map(esc).join(",")).join("\n")], { type: "text/csv" });
+    const rows: string[][] = [];
+    if (tab === "group") {
+      rows.push([t("budget.csv.date"), t("budget.csv.description"), t("budget.csv.category"), t("budget.paidBy"),
+                 t("budget.csv.amount"), t("budget.csv.currency"), t("budget.csv.splitBetween")]);
+      group.forEach(e => rows.push([
+        e.date, e.description ?? "", t(`budget.categories.${e.category}`), member(e.paid_by)?.display_name ?? t("common.traveler"),
+        String(e.amount), e.currency,
+        splits.filter(s => s.expense_id === e.id).map(s => `${member(s.user_id)?.display_name ?? t("common.traveler")} (${s.share_amount})`).join("; "),
+      ]));
+    } else {
+      rows.push([t("budget.csv.date"), t("budget.csv.description"), t("budget.csv.category"), t("budget.csv.type"),
+                 t("budget.csv.myCost"), t("budget.csv.currency")]);
+      personal.forEach(e => rows.push([e.date, e.description ?? "", t(`budget.categories.${e.category}`), t("budget.personal"), String(e.amount), e.currency]));
+      splits.filter(s => s.user_id === userId).forEach(s => {
+        const e = group.find(x => x.id === s.expense_id);
+        if (e) rows.push([e.date, e.description ?? "", t(`budget.categories.${e.category}`), t("budget.groupShare"), String(s.share_amount), e.currency]);
+      });
+    }
+    const blob = new Blob(["﻿" + rows.map(r => r.map(esc).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${trip.title.replace(/[^\w-]+/g, "_")}-expenses.csv`;
+    a.download = `${trip.title.replace(/[^\w-]+/g, "_")}-${tab === "group" ? "group" : "my"}-expenses.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
+
+  const openNew = (scope: Scope) => setEditor({ open: true, expense: null, scope });
+  const canAddHere = tab === "mine" || canEdit;
+  const hasRows = tab === "group" ? group.length > 0 : personal.length > 0 || splits.some(s => s.user_id === userId);
 
   return (
     <PageBody>
@@ -178,38 +166,131 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
         eyebrow={t("nav.budget")}
         title={t("budget.expenses")}
         actions={<>
-          {expenses.length > 0 && (
-            <Button variant="secondary" onClick={exportCsv}><Download size={15} aria-hidden="true" /> Export CSV</Button>
-          )}
-          {canEdit && (
-            <Button onClick={() => setEditor({ open: true, expense: null })}><Plus size={16} aria-hidden="true" /> {t("budget.addExpense")}</Button>
+          {hasRows && <Button variant="secondary" onClick={exportCsv}><Download size={15} aria-hidden="true" /> {t("budget.exportCsv")}</Button>}
+          {canAddHere && (
+            <Button onClick={() => openNew(tab === "mine" ? "personal" : "group")}>
+              <Plus size={16} aria-hidden="true" /> {tab === "mine" ? t("budget.addPersonal") : t("budget.addExpense")}
+            </Button>
           )}
         </>}
       />
 
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <Segmented label={t("budget.view")} value={tab} onChange={setTab} options={[
+          { id: "group", label: t("budget.tabs.group"), icon: Users, count: group.length },
+          { id: "mine", label: t("budget.tabs.mine"), icon: User, count: personal.length },
+        ]} />
+        <p className="flex items-center gap-1.5 text-[12px] text-ink-3">
+          {tab === "group"
+            ? <><Users size={13} aria-hidden="true" /> {canEdit ? t("budget.groupHint") : t("budget.groupHintViewer")}</>
+            : <><Lock size={13} aria-hidden="true" /> {t("budget.mineHint")}</>}
+          <LiveDot live={live} />
+        </p>
+      </div>
+
+      {tab === "group" ? (
+        <GroupView trip={trip} members={members} expenses={group} splits={splits} userId={userId} canEdit={canEdit}
+                   nameOf={nameOf} member={member}
+                   onEdit={e => setEditor({ open: true, expense: e, scope: "group" })} onAdd={() => openNew("group")}
+                   onRemove={removeExpense} onSettled={refresh} />
+      ) : (
+        <MineView trip={trip} groupExpenses={group} personal={personal} splits={splits} userId={userId}
+                  nameOf={nameOf} member={member} myBudget={myBudget} setMyBudget={setMyBudget}
+                  onEdit={e => setEditor({ open: true, expense: e, scope: "personal" })} onAdd={() => openNew("personal")}
+                  onRemove={removeExpense} onSettled={refresh} />
+      )}
+
+      {editor.open && (
+        <ExpenseDialog trip={trip} members={members} userId={userId} expense={editor.expense} scope={editor.scope}
+                       canEditGroup={canEdit}
+                       existingSplits={editor.expense ? splits.filter(s => s.expense_id === editor.expense!.id) : []}
+                       nameOf={nameOf}
+                       onClose={() => setEditor(e => ({ ...e, open: false, expense: null }))}
+                       onDelete={editor.expense ? () => { removeExpense(editor.expense!.id); setEditor(e => ({ ...e, open: false, expense: null })); } : undefined}
+                       onSaved={applySaved} />
+      )}
+    </PageBody>
+  );
+}
+
+type ProfileFn = (uid: string) => Member["profiles"] | undefined;
+
+/* ── Group view ──────────────────────────────────────────────────────────── */
+function GroupView({ trip, members, expenses, splits, userId, canEdit, nameOf, member, onEdit, onAdd, onRemove, onSettled }: {
+  trip: TripRow; members: Member[]; expenses: Expense[]; splits: Split[]; userId: string; canEdit: boolean;
+  nameOf: (uid: string) => string; member: ProfileFn;
+  onEdit: (e: Expense) => void; onAdd: () => void; onRemove: (id: string) => void; onSettled: () => void;
+}) {
+  const { t } = useTranslation("common");
+  const [catFilter, setCatFilter] = useState<string | null>(null);
+  const [payerFilter, setPayerFilter] = useState<string>("all");
+  const [query, setQuery] = useState("");
+  const [range, setRange] = useState<DateRange | null>(null);
+  const [settling, setSettling] = useState<string | null>(null);
+  const cur = trip.currency;
+
+  const totalSpent = expenses.reduce((s, e) => s + Number(e.amount), 0);
+  const budget = trip.total_budget ?? 0;
+  const remaining = budget - totalSpent;
+  const spentPct = budget > 0 ? (totalSpent / budget) * 100 : 0;
+  const groupIds = new Set(expenses.map(e => e.id));
+  const groupSplits = splits.filter(s => groupIds.has(s.expense_id));
+  const myShare = groupSplits.filter(s => s.user_id === userId).reduce((s, sp) => s + Number(sp.share_amount), 0);
+
+  const balances = useMemo(() => computeBalances(expenses, groupSplits), [expenses, groupSplits]);
+  const settlements = useMemo(() => computeSettlements(expenses, groupSplits), [expenses, groupSplits]);
+  const settledCount = groupSplits.filter(s => s.is_settled && expenses.find(e => e.id === s.expense_id)?.paid_by !== s.user_id).length;
+
+  const people = members.map(m => {
+    const paid = expenses.filter(e => e.paid_by === m.user_id).reduce((s, e) => s + Number(e.amount), 0);
+    const share = groupSplits.filter(s => s.user_id === m.user_id).reduce((s, sp) => s + Number(sp.share_amount), 0);
+    return { id: m.user_id, paid, share, balance: balances[m.user_id] ?? 0 };
+  });
+
+  const dailyBudget = budget > 0 && trip.start_date && trip.end_date
+    ? budget / Math.max(1, Math.round((parseDate(trip.end_date).getTime() - parseDate(trip.start_date).getTime()) / 86_400_000) + 1)
+    : null;
+
+  const visible = expenses.filter(e =>
+    (!range || (e.date >= range.start && e.date <= range.end)) &&
+    (!catFilter || e.category === catFilter) &&
+    (payerFilter === "all" || e.paid_by === payerFilter) &&
+    (!query.trim() || (e.description ?? t(`budget.categories.${e.category}`)).toLowerCase().includes(query.trim().toLowerCase()))
+  );
+
+  async function settle(from: string, to: string) {
+    setSettling(`${from}>${to}`);
+    const { error } = await createClient().rpc("settle_debt", { p_trip_id: trip.id, p_from: from, p_to: to });
+    setSettling(null);
+    if (error) { toast.error(t("budget.settleFailed")); return; }
+    toast.success(t("budget.settledToast", { from: nameOf(from), to: nameOf(to) }));
+    onSettled();
+  }
+
+  return (
+    <>
       {budget > 0 && remaining < 0 && (
         <p role="status" className="mt-6 rounded-[var(--radius-panel)] border border-negative/30 bg-negative-soft px-4 py-3 text-[13px] text-negative">
-          You&apos;re <b className="font-semibold">{formatCurrency(-remaining, cur, { compact: true })}</b> over budget.
+          {t("budget.overBudget", { amount: formatCurrency(-remaining, cur, { compact: true }) })}
         </p>
       )}
 
-      {/* Summary */}
       <div className="panel mt-6 overflow-hidden">
         <div className="grid grid-cols-1 gap-6 px-5 py-6 sm:px-6 lg:grid-cols-[1.15fr_1fr]">
           <div>
-            <p className="eyebrow">{t("budget.totalSpent")}</p>
+            <p className="eyebrow">{t("budget.groupSpent")}</p>
             <p className="display mt-2 text-[44px] text-ink tabular sm:text-[52px]">{formatCurrency(totalSpent, cur)}</p>
             {budget > 0 ? (
               <>
                 <p className="mt-1 text-[13px] text-ink-2">
-                  of {formatCurrency(budget, cur, { compact: true })} budget · {Math.round(spentPct)}% used
-                  {dailyBudget && <span className="text-ink-3"> · {formatCurrency(dailyBudget, cur, { compact: true })}/day planned</span>}
+                  {t("budget.ofBudgetUsed", { budget: formatCurrency(budget, cur, { compact: true }), pct: Math.round(spentPct) })}
+                  {dailyBudget && <span className="text-ink-3"> · {t("budget.perDayPlanned", { amount: formatCurrency(dailyBudget, cur, { compact: true }) })}</span>}
                 </p>
-                <Progress value={spentPct} className="mt-4 h-2" label="Budget used"
+                <Progress value={spentPct} className="mt-4 h-2" label={t("budget.budgetUsed")}
                           tone={spentPct > 100 ? "negative" : spentPct > 85 ? "accent" : "ink"} />
               </>
             ) : (
-              <p className="mt-1 text-[13px] text-ink-3">No budget set for this trip.</p>
+              <p className="mt-1 text-[13px] text-ink-3">{t("budget.noBudget")}</p>
             )}
             <dl className="mt-6 grid grid-cols-3 gap-4">
               <div>
@@ -223,7 +304,7 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
                 <dd className="mt-1.5 text-[15px] font-medium text-ink tabular">{formatCurrency(myShare, cur, { compact: true })}</dd>
               </div>
               <div>
-                <dt className="eyebrow">Your balance</dt>
+                <dt className="eyebrow">{t("budget.yourBalance")}</dt>
                 <dd className={cn("mt-1.5 text-[15px] font-medium tabular",
                                   (balances[userId] ?? 0) > 0.01 ? "text-positive" : (balances[userId] ?? 0) < -0.01 ? "text-negative" : "text-ink")}>
                   {(balances[userId] ?? 0) > 0.01 ? "+" : ""}{formatCurrency(balances[userId] ?? 0, cur, { compact: true })}
@@ -231,145 +312,71 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
               </div>
             </dl>
           </div>
-
-          {/* Daily spending */}
-          <div className="border-t border-line pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-            <p className="eyebrow">Daily spending</p>
-            {byDay.length === 0 ? (
-              <p className="mt-3 text-[13px] text-ink-3">Spending per day will show here.</p>
-            ) : (
-              <div className="relative mt-4 flex h-[120px] items-end gap-1.5" role="img"
-                   aria-label={`Daily spending over ${byDay.length} days`}>
-                {dailyBudget && dailyBudget < dayMax * 1.05 && (
-                  <span className="pointer-events-none absolute inset-x-0 border-t border-dashed border-accent/60"
-                        style={{ bottom: `${(dailyBudget / dayMax) * 100}%` }}>
-                    <span className="absolute -top-4 right-0 font-mono text-[9.5px] text-accent-ink">daily budget</span>
-                  </span>
-                )}
-                {byDay.map(([date, v]) => (
-                  <div key={date} className="group relative flex h-full flex-1 flex-col justify-end">
-                    <div className={cn("w-full rounded-t-[4px] transition-colors", dailyBudget && v > dailyBudget ? "bg-accent" : "bg-ink/80 group-hover:bg-ink")}
-                         style={{ height: `${Math.max(4, (v / dayMax) * 100)}%` }} />
-                    <span className="pointer-events-none absolute -top-7 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-ink px-1.5 py-0.5 font-mono text-[10px] text-paper group-hover:block">
-                      {formatCurrency(v, cur, { compact: true })}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {byDay.length > 0 && (
-              <div className="mt-1.5 flex justify-between font-mono text-[10px] text-ink-3">
-                <span>{formatShortDate(byDay[0][0])}</span>
-                {byDay.length > 1 && <span>{formatShortDate(byDay[byDay.length - 1][0])}</span>}
-              </div>
-            )}
+          <div className="border-t border-line pt-5 lg:border-s lg:border-t-0 lg:ps-6 lg:pt-0">
+            <SpendingChart items={expenses.map(e => ({ date: e.date, amount: Number(e.amount), category: e.category }))} currency={cur}
+                           tripStart={trip.start_date} tripEnd={trip.end_date} dailyBudget={dailyBudget} totalBudget={budget || null}
+                           selected={range} onSelect={r => { setRange(r); if (r) document.getElementById("ledger-heading")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
           </div>
         </div>
-
-        {byCategory.length > 0 && (
-          <div className="border-t border-line bg-paper/60 px-5 py-4 sm:px-6">
-            <div className="flex h-2 overflow-hidden rounded-full bg-sunken" aria-hidden="true">
-              {byCategory.map(([cat, amt]) => (
-                <span key={cat} style={{ width: `${(amt / totalSpent) * 100}%`, backgroundColor: EXPENSE_META[cat]?.color }}
-                      className="h-full border-r-2 border-surface last:border-r-0" />
-              ))}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Filter by category">
-              {byCategory.map(([cat, amt]) => (
-                <button key={cat} onClick={() => setCatFilter(c => c === cat ? null : cat)} aria-pressed={catFilter === cat}
-                        className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors",
-                                      catFilter === cat ? "border-ink bg-ink text-paper" : "border-transparent text-ink-2 hover:bg-sunken")}>
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: EXPENSE_META[cat]?.color }} aria-hidden="true" />
-                  {t(`budget.categories.${cat}`)}
-                  <span className={cn("font-mono text-[11px]", catFilter === cat ? "text-paper/60" : "text-ink-3")}>
-                    {Math.round((amt / totalSpent) * 100)}%
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <CategoryBar items={expenses.map(e => ({ category: e.category, amount: Number(e.amount) }))} active={catFilter} onToggle={setCatFilter} />
       </div>
 
       <div className="mt-10 grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
-        {/* Ledger */}
-        <section aria-labelledby="ledger-heading">
-          <SectionTitle meta={visible.length !== expenses.length ? `${visible.length} of ${expenses.length}` : expenses.length}>
-            <span id="ledger-heading">All expenses</span>
+        <section aria-labelledby="ledger-heading" className="min-w-0">
+          <SectionTitle meta={visible.length !== expenses.length ? t("common.xOfY", { x: visible.length, y: expenses.length }) : expenses.length}>
+            <span id="ledger-heading">{t("budget.groupExpenses")}</span>
           </SectionTitle>
 
           {expenses.length > 0 && (
             <div className="mb-3 flex flex-col gap-2 sm:flex-row">
               <div className="relative flex-1">
-                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden="true" />
-                <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search expenses" className="h-9 pl-8" aria-label="Search expenses" />
+                <Search size={14} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden="true" />
+                <Input value={query} onChange={e => setQuery(e.target.value)} placeholder={t("budget.search")} className="h-9 ps-8" aria-label={t("budget.search")} />
               </div>
               <div className="sm:w-44">
-                <Select value={payerFilter} onChange={e => setPayerFilter(e.target.value)} className="h-9" aria-label="Filter by payer">
-                  <option value="all">Anyone paid</option>
-                  {members.map(m => <option key={m.user_id} value={m.user_id}>Paid by {nameOf(m.user_id)}</option>)}
+                <Select value={payerFilter} onChange={e => setPayerFilter(e.target.value)} className="h-9" aria-label={t("budget.filterPayer")}>
+                  <option value="all">{t("budget.anyonePaid")}</option>
+                  {members.map(m => <option key={m.user_id} value={m.user_id}>{t("budget.paidByName", { name: nameOf(m.user_id) })}</option>)}
                 </Select>
               </div>
-              {(catFilter || payerFilter !== "all" || query) && (
-                <Button variant="ghost" size="sm" className="h-9" onClick={() => { setCatFilter(null); setPayerFilter("all"); setQuery(""); }}>
-                  <X size={14} /> Clear
+              {(catFilter || payerFilter !== "all" || query || range) && (
+                <Button variant="ghost" size="sm" className="h-9" onClick={() => { setCatFilter(null); setPayerFilter("all"); setQuery(""); setRange(null); }}>
+                  <X size={14} /> {t("common.clear")}
                 </Button>
               )}
             </div>
           )}
 
           {expenses.length === 0 ? (
-            <EmptyState icon={Receipt} title="No expenses yet"
-                        description="Log what you spend and Travera will split it between travelers."
-                        action={canEdit && <Button variant="secondary" onClick={() => setEditor({ open: true, expense: null })}><Plus size={15} /> {t("budget.addExpense")}</Button>} />
+            <EmptyState icon={Receipt} title={t("budget.emptyGroup")}
+                        description={canEdit ? t("budget.emptyGroupDesc") : t("budget.emptyGroupViewer")}
+                        action={canEdit && <Button variant="secondary" onClick={onAdd}><Plus size={15} /> {t("budget.addExpense")}</Button>} />
           ) : visible.length === 0 ? (
-            <p className="panel px-5 py-8 text-center text-[13px] text-ink-3">No expenses match these filters.</p>
+            <p className="panel px-5 py-8 text-center text-[13px] text-ink-3">{t("budget.noMatch")}</p>
           ) : (
             <ul className="panel divide-y divide-line overflow-hidden">
               {visible.map(exp => {
-                const meta = EXPENSE_META[exp.category] ?? EXPENSE_META.other;
-                const Icon = meta.icon;
                 const expSplits = splits.filter(s => s.expense_id === exp.id);
-                const allSettled = expSplits.length > 0 && expSplits.every(s => s.is_settled || s.user_id === exp.paid_by);
+                const others = expSplits.filter(s => s.user_id !== exp.paid_by);
+                const allSettled = others.length > 0 && others.every(s => s.is_settled);
+                const mine = expSplits.find(s => s.user_id === userId);
                 return (
-                  <li key={exp.id} className="group flex items-center gap-3.5 px-4 py-3 sm:px-5">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full"
-                          style={{ backgroundColor: `${meta.color}14`, color: meta.color }}>
-                      <Icon size={15} aria-hidden="true" />
-                    </span>
-                    <button className="min-w-0 flex-1 text-left disabled:cursor-default" disabled={!canEdit}
-                            onClick={() => setEditor({ open: true, expense: exp })}>
-                      <p className="truncate text-[14px] font-medium text-ink">{exp.description || t(`budget.categories.${exp.category}`)}</p>
-                      <p className="truncate text-[12px] text-ink-3">
-                        <span className="font-mono">{formatShortDate(exp.date)}</span> · {t("budget.paidBy")} {nameOf(exp.paid_by)}
-                        {expSplits.length > 0 && ` · split ${expSplits.length} ${expSplits.length === 1 ? "way" : "ways"}`}
-                        {allSettled && expSplits.length > 1 && <span className="text-positive"> · settled</span>}
-                      </p>
-                    </button>
-                    <span className="shrink-0 text-[14px] font-medium text-ink tabular">{formatCurrency(exp.amount, exp.currency)}</span>
-                    {canEdit && (
-                      <div className="hidden shrink-0 lg:flex lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
-                        <button onClick={() => setEditor({ open: true, expense: exp })} aria-label={`Edit ${exp.description ?? "expense"}`}
-                                className="grid h-8 w-8 place-items-center rounded-md text-ink-3 transition-colors hover:bg-sunken hover:text-ink">
-                          <Pencil size={14} />
-                        </button>
-                        <button onClick={() => removeExpense(exp.id)} aria-label={`Delete ${exp.description ?? "expense"}`}
-                                className="grid h-8 w-8 place-items-center rounded-md text-ink-3 transition-colors hover:bg-negative-soft hover:text-negative">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    )}
-                  </li>
+                  <ExpenseRowItem key={exp.id} exp={exp} canEdit={canEdit} onEdit={onEdit} onRemove={onRemove}
+                    meta={<>
+                      <span className="font-mono">{formatShortDate(exp.date)}</span> · {t("budget.paidBy")} {nameOf(exp.paid_by)}
+                      {expSplits.length > 0 && ` · ${t("budget.splitWays", { count: expSplits.length })}`}
+                      {allSettled && <span className="text-positive"> · {t("budget.settled")}</span>}
+                    </>}
+                    aside={mine && <span className="block text-end text-[11px] text-ink-3">{t("budget.yoursAmount", { amount: formatCurrency(mine.share_amount, cur) })}</span>} />
                 );
               })}
             </ul>
           )}
         </section>
 
-        {/* Right column */}
-        <aside className="space-y-8 lg:sticky lg:top-6">
+        <aside className="min-w-0 space-y-8 lg:sticky lg:top-6">
           <section aria-labelledby="settle-heading">
-            <SectionTitle meta={settledCount > 0 ? `${settledCount} paid` : undefined}><span id="settle-heading">{t("budget.settlements")}</span></SectionTitle>
+            <SectionTitle meta={settledCount > 0 ? t("budget.paidCount", { count: settledCount }) : undefined}><span id="settle-heading">{t("budget.settlements")}</span></SectionTitle>
             <div className="panel">
               {settlements.length === 0 ? (
                 <div className="flex items-center gap-3 px-4 py-4">
@@ -378,29 +385,35 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
                 </div>
               ) : (
                 <ul className="divide-y divide-line">
-                  {settlements.map(s => (
-                    <li key={`${s.from}>${s.to}`} className="flex items-center gap-3 px-4 py-3">
-                      <div className="flex items-center -space-x-1.5">
-                        <Avatar name={member(s.from)?.display_name} src={member(s.from)?.avatar_url} size={26} className="ring-2 ring-surface" />
-                        <Avatar name={member(s.to)?.display_name} src={member(s.to)?.avatar_url} size={26} className="ring-2 ring-surface" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] text-ink-2">
-                          <span className="font-medium text-ink">{nameOf(s.from)}</span>
-                          <ArrowRight size={12} className="mx-1 inline -translate-y-px text-ink-3" aria-label="pays" />
-                          <span className="font-medium text-ink">{nameOf(s.to)}</span>
-                        </p>
-                        <p className="text-[13px] font-semibold text-ink tabular">{formatCurrency(s.amount, cur)}</p>
-                      </div>
-                      {canEdit && (
-                        <Button size="sm" variant="secondary" loading={settling === `${s.from}>${s.to}`}
-                                onClick={() => settle(s.from, s.to)} aria-label={`Mark ${nameOf(s.from)} paid ${nameOf(s.to)}`}>
-                          <Check size={13} /> Paid
-                        </Button>
-                      )}
-                    </li>
-                  ))}
+                  {settlements.map(s => {
+                    const mayConfirm = canEdit || s.to === userId;
+                    return (
+                      <li key={`${s.from}>${s.to}`} className={cn("flex items-center gap-3 px-4 py-3", (s.from === userId || s.to === userId) && "bg-accent-soft/40")}>
+                        <div className="flex items-center -space-x-1.5 rtl:space-x-reverse">
+                          <Avatar name={member(s.from)?.display_name} src={member(s.from)?.avatar_url} size={26} className="ring-2 ring-surface" />
+                          <Avatar name={member(s.to)?.display_name} src={member(s.to)?.avatar_url} size={26} className="ring-2 ring-surface" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] text-ink-2">
+                            <span className="font-medium text-ink">{nameOf(s.from)}</span>
+                            <ArrowRight size={12} className="mx-1 inline -translate-y-px text-ink-3 rtl:-scale-x-100" aria-label={t("budget.pays")} />
+                            <span className="font-medium text-ink">{nameOf(s.to)}</span>
+                          </p>
+                          <p className="text-[13px] font-semibold text-ink tabular">{formatCurrency(s.amount, cur)}</p>
+                        </div>
+                        {mayConfirm && (
+                          <Button size="sm" variant="secondary" loading={settling === `${s.from}>${s.to}`}
+                                  onClick={() => settle(s.from, s.to)} aria-label={t("budget.markPaidAria", { from: nameOf(s.from), to: nameOf(s.to) })}>
+                            <Check size={13} /> {t("budget.paid")}
+                          </Button>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
+              )}
+              {settlements.length > 0 && !canEdit && (
+                <p className="border-t border-line px-4 py-2.5 text-[11.5px] text-ink-3">{t("budget.settleHintViewer")}</p>
               )}
             </div>
           </section>
@@ -415,7 +428,7 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-medium text-ink">{nameOf(p.id)}</p>
                       <p className="text-[11.5px] text-ink-3">
-                        Paid {formatCurrency(p.paid, cur, { compact: true })} · Share {formatCurrency(p.share, cur, { compact: true })}
+                        {t("budget.paidShare", { paid: formatCurrency(p.paid, cur, { compact: true }), share: formatCurrency(p.share, cur, { compact: true }) })}
                       </p>
                     </div>
                     <span className={cn("text-[13px] font-semibold tabular",
@@ -429,95 +442,404 @@ export function BudgetClient({ trip, members, initialExpenses, initialSplits, us
           )}
         </aside>
       </div>
+    </>
+  );
+}
 
-      {editor.open && (
-        <ExpenseDialog trip={trip} members={members} userId={userId} expense={editor.expense}
-                       existingSplits={editor.expense ? splits.filter(s => s.expense_id === editor.expense!.id) : []}
-                       nameOf={nameOf}
-                       onClose={() => setEditor({ open: false, expense: null })}
-                       onDelete={editor.expense ? () => { removeExpense(editor.expense!.id); setEditor({ open: false, expense: null }); } : undefined}
-                       onSaved={refresh} />
+/* ── Mine view (private) ─────────────────────────────────────────────────── */
+function MineView({ trip, groupExpenses, personal, splits, userId, nameOf, member, myBudget, setMyBudget, onEdit, onAdd, onRemove, onSettled }: {
+  trip: TripRow; groupExpenses: Expense[]; personal: Expense[]; splits: Split[]; userId: string;
+  nameOf: (uid: string) => string; member: ProfileFn; myBudget: number | null; setMyBudget: (n: number | null) => void;
+  onEdit: (e: Expense) => void; onAdd: () => void; onRemove: (id: string) => void; onSettled: () => void;
+}) {
+  const { t } = useTranslation("common");
+  const cur = trip.currency;
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [draft, setDraft] = useState(myBudget != null ? String(myBudget) : "");
+  const [settling, setSettling] = useState<string | null>(null);
+  const [range, setRange] = useState<DateRange | null>(null);
+
+  const myShares = splits.filter(s => s.user_id === userId)
+    .map(s => ({ split: s, exp: groupExpenses.find(e => e.id === s.expense_id) }))
+    .filter((x): x is { split: Split; exp: Expense } => !!x.exp);
+  const shareTotal = myShares.reduce((s, x) => s + Number(x.split.share_amount), 0);
+  const personalTotal = personal.reduce((s, e) => s + Number(e.amount), 0);
+  const myTotal = shareTotal + personalTotal;
+  const pct = myBudget ? (myTotal / myBudget) * 100 : 0;
+
+  // Net position with each traveler (group, unsettled): positive = they owe me, negative = I owe them.
+  const withPerson: Record<string, number> = {};
+  for (const [k, v] of Object.entries(pairwiseNet(groupExpenses, splits))) {
+    const [a, b] = k.split("|");
+    if (a === userId) withPerson[b] = -v;
+    else if (b === userId) withPerson[a] = v;
+  }
+  const iOwe = Object.fromEntries(Object.entries(withPerson).filter(([, v]) => v < -0.009).map(([u, v]) => [u, -v]));
+  const owedToMe = Object.fromEntries(Object.entries(withPerson).filter(([, v]) => v > 0.009));
+  const oweTotal = Object.values(iOwe).reduce((a, b) => a + b, 0);
+  const owedTotal = Object.values(owedToMe).reduce((a, b) => a + b, 0);
+
+  async function saveBudget(e: React.FormEvent) {
+    e.preventDefault();
+    const supabase = createClient();
+    const value = draft.trim() ? Number(draft) : null;
+    if (value != null && (!Number.isFinite(value) || value < 0)) { toast.error(t("budget.invalidAmount")); return; }
+    const { error } = value == null
+      ? await supabase.from("member_budgets").delete().eq("trip_id", trip.id).eq("user_id", userId)
+      : await supabase.from("member_budgets").upsert({ trip_id: trip.id, user_id: userId, amount: value, updated_at: new Date().toISOString() }, { onConflict: "trip_id,user_id" });
+    if (error) { toast.error(t("budget.budgetFailed")); return; }
+    setMyBudget(value);
+    setEditingBudget(false);
+    toast.success(t("budget.budgetSaved"));
+  }
+
+  async function confirmReceived(from: string) {
+    setSettling(from);
+    const { error } = await createClient().rpc("settle_debt", { p_trip_id: trip.id, p_from: from, p_to: userId });
+    setSettling(null);
+    if (error) { toast.error(t("budget.settleFailed")); return; }
+    toast.success(t("budget.settledToast", { from: nameOf(from), to: nameOf(userId) }));
+    onSettled();
+  }
+
+  const allLedger = [
+    ...personal.map(e => ({ kind: "personal" as const, exp: e, amount: Number(e.amount) })),
+    ...myShares.map(x => ({ kind: "share" as const, exp: x.exp, amount: Number(x.split.share_amount), settled: x.split.is_settled })),
+  ].sort((a, b) => b.exp.date.localeCompare(a.exp.date));
+  const ledger = range ? allLedger.filter(l => l.exp.date >= range.start && l.exp.date <= range.end) : allLedger;
+
+  return (
+    <>
+      <div className="panel mt-6 overflow-hidden">
+        <div className="grid grid-cols-1 gap-6 px-5 py-6 sm:px-6 lg:grid-cols-[1.15fr_1fr]">
+          <div>
+            <p className="eyebrow flex items-center gap-1.5"><Lock size={11} aria-hidden="true" /> {t("budget.myTripCost")}</p>
+            <p className="display mt-2 text-[44px] text-ink tabular sm:text-[52px]">{formatCurrency(myTotal, cur)}</p>
+            <p className="mt-1 text-[13px] text-ink-2">
+              {t("budget.costBreakdown", { share: formatCurrency(shareTotal, cur, { compact: true }), personal: formatCurrency(personalTotal, cur, { compact: true }) })}
+            </p>
+            {editingBudget ? (
+              <form onSubmit={saveBudget} className="mt-4 flex gap-2">
+                <Input type="number" inputMode="decimal" min="0" step="0.01" value={draft} onChange={e => setDraft(e.target.value)} autoFocus
+                       placeholder={t("budget.myBudgetPlaceholder")} aria-label={t("budget.myBudget")} className="h-9 max-w-48" />
+                <Button size="sm" type="submit" className="h-9">{t("common.save")}</Button>
+                <Button size="sm" type="button" variant="ghost" className="h-9" onClick={() => setEditingBudget(false)}>{t("common.cancel")}</Button>
+              </form>
+            ) : myBudget ? (
+              <>
+                <div className="mt-4 flex items-center justify-between text-[12.5px] text-ink-2">
+                  <span>{t("budget.ofMyBudget", { budget: formatCurrency(myBudget, cur, { compact: true }), pct: Math.round(pct) })}</span>
+                  <button onClick={() => { setDraft(String(myBudget)); setEditingBudget(true); }} className="flex items-center gap-1 text-ink-3 hover:text-ink">
+                    <Pencil size={12} /> {t("common.edit")}
+                  </button>
+                </div>
+                <Progress value={pct} className="mt-2 h-2" label={t("budget.myBudget")} tone={pct > 100 ? "negative" : pct > 85 ? "accent" : "ink"} />
+                {pct > 100 && <p className="mt-2 text-[12.5px] text-negative">{t("budget.overMyBudget", { amount: formatCurrency(myTotal - myBudget, cur, { compact: true }) })}</p>}
+              </>
+            ) : (
+              <Button size="sm" variant="secondary" className="mt-4" onClick={() => setEditingBudget(true)}>
+                <Plus size={13} /> {t("budget.setMyBudget")}
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3 self-start">
+            <div className="rounded-[12px] border border-line px-4 py-3">
+              <p className="eyebrow">{t("budget.youOwe")}</p>
+              <p className={cn("mt-1.5 text-[20px] font-semibold tabular", oweTotal > 0.01 ? "text-negative" : "text-ink-3")}>{formatCurrency(oweTotal, cur, { compact: true })}</p>
+            </div>
+            <div className="rounded-[12px] border border-line px-4 py-3">
+              <p className="eyebrow">{t("budget.owedToYou")}</p>
+              <p className={cn("mt-1.5 text-[20px] font-semibold tabular", owedTotal > 0.01 ? "text-positive" : "text-ink-3")}>{formatCurrency(owedTotal, cur, { compact: true })}</p>
+            </div>
+            <div className="col-span-2 border-t border-line pt-4">
+              <SpendingChart items={allLedger.map(l => ({ date: l.exp.date, amount: l.amount, category: l.exp.category }))} currency={cur} compact
+                             title={t("chart.mySpending")} tripStart={trip.start_date} tripEnd={trip.end_date} totalBudget={myBudget}
+                             selected={range} onSelect={setRange}
+                             dailyBudget={myBudget && trip.start_date && trip.end_date
+                               ? myBudget / Math.max(1, Math.round((parseDate(trip.end_date).getTime() - parseDate(trip.start_date).getTime()) / 86_400_000) + 1)
+                               : null} />
+            </div>
+          </div>
+        </div>
+        <CategoryBar items={allLedger.map(l => ({ category: l.exp.category, amount: l.amount }))} />
+      </div>
+
+      <div className="mt-10 grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <section aria-labelledby="mine-heading" className="min-w-0">
+          <SectionTitle meta={range ? t("common.xOfY", { x: ledger.length, y: allLedger.length }) : ledger.length}
+                        action={range && <Button variant="ghost" size="sm" onClick={() => setRange(null)}><X size={14} /> {t("common.clear")}</Button>}>
+            <span id="mine-heading">{t("budget.mySpending")}</span>
+          </SectionTitle>
+          {ledger.length === 0 && range ? (
+            <p className="panel px-5 py-8 text-center text-[13px] text-ink-3">{t("budget.noMatch")}</p>
+          ) : ledger.length === 0 ? (
+            <EmptyState icon={Receipt} title={t("budget.emptyMine")} description={t("budget.emptyMineDesc")}
+                        action={<Button variant="secondary" onClick={onAdd}><Plus size={15} /> {t("budget.addPersonal")}</Button>} />
+          ) : (
+            <ul className="panel divide-y divide-line overflow-hidden">
+              {ledger.map(l => l.kind === "personal" ? (
+                <ExpenseRowItem key={`p-${l.exp.id}`} exp={l.exp} canEdit onEdit={onEdit} onRemove={onRemove}
+                  meta={<><span className="font-mono">{formatShortDate(l.exp.date)}</span> · <Lock size={10} className="inline -translate-y-px" aria-hidden="true" /> {t("budget.personal")}</>} />
+              ) : (
+                <ExpenseRowItem key={`s-${l.exp.id}`} exp={l.exp} canEdit={false} amountOverride={l.amount}
+                  meta={<>
+                    <span className="font-mono">{formatShortDate(l.exp.date)}</span> · {t("budget.shareOf", { total: formatCurrency(l.exp.amount, cur, { compact: true }) })}
+                    {" · "}{l.exp.paid_by === userId ? t("budget.youPaid") : t("budget.paidByName", { name: nameOf(l.exp.paid_by) })}
+                    {"settled" in l && l.settled && l.exp.paid_by !== userId && <span className="text-positive"> · {t("budget.settled")}</span>}
+                  </>} />
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <aside className="min-w-0 space-y-8 lg:sticky lg:top-6">
+          <section aria-labelledby="owe-heading">
+            <SectionTitle><span id="owe-heading">{t("budget.settleUp")}</span></SectionTitle>
+            <div className="panel divide-y divide-line">
+              {oweTotal < 0.01 && owedTotal < 0.01 && (
+                <div className="flex items-center gap-3 px-4 py-4">
+                  <CheckCircle2 size={18} className="text-positive" aria-hidden="true" />
+                  <p className="text-[13px] text-ink-2">{t("budget.allSquare")}</p>
+                </div>
+              )}
+              {Object.entries(iOwe).filter(([, v]) => v > 0.009).map(([uid, v]) => (
+                <div key={`o-${uid}`} className="flex items-center gap-3 px-4 py-3">
+                  <Avatar name={member(uid)?.display_name} src={member(uid)?.avatar_url} size={28} />
+                  <p className="min-w-0 flex-1 text-[13px] text-ink-2">{t("budget.youOweName", { name: nameOf(uid) })}</p>
+                  <span className="text-[13px] font-semibold text-negative tabular">{formatCurrency(v, cur)}</span>
+                </div>
+              ))}
+              {Object.entries(owedToMe).filter(([, v]) => v > 0.009).map(([uid, v]) => (
+                <div key={`r-${uid}`} className="flex items-center gap-3 px-4 py-3">
+                  <Avatar name={member(uid)?.display_name} src={member(uid)?.avatar_url} size={28} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] text-ink-2">{t("budget.owesYou", { name: nameOf(uid) })}</p>
+                    <p className="text-[13px] font-semibold text-positive tabular">{formatCurrency(v, cur)}</p>
+                  </div>
+                  <Button size="sm" variant="secondary" loading={settling === uid} onClick={() => confirmReceived(uid)}>
+                    <Check size={13} /> {t("budget.received")}
+                  </Button>
+                </div>
+              ))}
+            </div>
+            {oweTotal > 0.01 && <p className="mt-2 text-[11.5px] text-ink-3">{t("budget.oweHint")}</p>}
+          </section>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+/* ── Shared bits ─────────────────────────────────────────────────────────── */
+function ExpenseRowItem({ exp, meta, canEdit, onEdit, onRemove, amountOverride, aside }: {
+  exp: Expense; meta: React.ReactNode; canEdit: boolean; onEdit?: (e: Expense) => void; onRemove?: (id: string) => void;
+  amountOverride?: number; aside?: React.ReactNode;
+}) {
+  const { t } = useTranslation("common");
+  const m = EXPENSE_META[exp.category] ?? EXPENSE_META.other;
+  const Icon = m.icon;
+  const title = exp.description || t(`budget.categories.${exp.category}`);
+  return (
+    <li className="group flex items-center gap-3.5 px-4 py-3 sm:px-5">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full" style={{ backgroundColor: `${m.color}14`, color: m.color }}>
+        <Icon size={15} aria-hidden="true" />
+      </span>
+      <button className="min-w-0 flex-1 text-start disabled:cursor-default" disabled={!canEdit} onClick={() => onEdit?.(exp)}>
+        <p className="truncate text-[14px] font-medium text-ink">{title}</p>
+        <p className="truncate text-[12px] text-ink-3">{meta}</p>
+      </button>
+      <span className="shrink-0">
+        <span className="block text-[14px] font-medium text-ink tabular">{formatCurrency(amountOverride ?? exp.amount, exp.currency)}</span>
+        {aside}
+      </span>
+      {canEdit && onEdit && onRemove && (
+        <div className="hidden shrink-0 lg:flex lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
+          <button onClick={() => onEdit(exp)} aria-label={t("budget.editAria", { name: title })}
+                  className="grid h-8 w-8 place-items-center rounded-md text-ink-3 transition-colors hover:bg-sunken hover:text-ink">
+            <Pencil size={14} />
+          </button>
+          <button onClick={() => onRemove(exp.id)} aria-label={t("budget.deleteAria", { name: title })}
+                  className="grid h-8 w-8 place-items-center rounded-md text-ink-3 transition-colors hover:bg-negative-soft hover:text-negative">
+            <Trash2 size={14} />
+          </button>
+        </div>
       )}
-    </PageBody>
+    </li>
+  );
+}
+
+/** Small "live" indicator: green pulse when the realtime channel is connected. */
+export function LiveDot({ live }: { live: boolean }) {
+  const { t } = useTranslation("common");
+  return (
+    <span className="ms-1 inline-flex items-center gap-1 font-mono text-[10.5px] uppercase tracking-wider" title={live ? t("live.on") : t("live.off")}>
+      <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
+        {live && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-positive/60" />}
+        <span className={cn("relative inline-flex h-1.5 w-1.5 rounded-full", live ? "bg-positive" : "bg-line-strong")} />
+      </span>
+      <span className="sr-only">{live ? t("live.on") : t("live.off")}</span>
+    </span>
+  );
+}
+
+function CategoryBar({ items, active, onToggle }: {
+  items: { category: string; amount: number }[]; active?: string | null; onToggle?: (c: string | null) => void;
+}) {
+  const { t } = useTranslation("common");
+  const total = items.reduce((s, i) => s + i.amount, 0);
+  const byCategory = useMemo(() => {
+    const totals: Record<string, number> = {};
+    items.forEach(e => { totals[e.category] = (totals[e.category] ?? 0) + e.amount; });
+    return Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  }, [items]);
+  if (!byCategory.length || total <= 0) return null;
+  return (
+    <div className="border-t border-line bg-paper/60 px-5 py-4 sm:px-6">
+      <div className="flex h-2 overflow-hidden rounded-full bg-sunken" aria-hidden="true">
+        {byCategory.map(([cat, amt]) => (
+          <span key={cat} style={{ width: `${(amt / total) * 100}%`, backgroundColor: EXPENSE_META[cat]?.color }}
+                className="h-full border-e-2 border-surface last:border-e-0" />
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label={t("budget.filterCategory")}>
+        {byCategory.map(([cat, amt]) => {
+          const content = (
+            <>
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: EXPENSE_META[cat]?.color }} aria-hidden="true" />
+              {t(`budget.categories.${cat}`)}
+              <span className={cn("font-mono text-[11px]", active === cat ? "text-paper/60" : "text-ink-3")}>{Math.round((amt / total) * 100)}%</span>
+            </>
+          );
+          const cls = cn("flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors",
+                         active === cat ? "border-ink bg-ink text-paper" : "border-transparent text-ink-2", onToggle && active !== cat && "hover:bg-sunken");
+          return onToggle
+            ? <button key={cat} onClick={() => onToggle(active === cat ? null : cat)} aria-pressed={active === cat} className={cls}>{content}</button>
+            : <span key={cat} className={cls}>{content}</span>;
+        })}
+      </div>
+    </div>
   );
 }
 
 /* ── Add / edit expense ──────────────────────────────────────────────────── */
-function ExpenseDialog({ trip, members, userId, expense, existingSplits, nameOf, onClose, onDelete, onSaved }: {
-  trip: Trip; members: Member[]; userId: string; expense: Expense | null; existingSplits: Split[];
-  nameOf: (uid: string) => string; onClose: () => void; onDelete?: () => void; onSaved: () => void;
+type SplitMode = "equal" | "exact" | "shares";
+
+function ExpenseDialog({ trip, members, userId, expense, scope: initialScope, canEditGroup, existingSplits, nameOf, onClose, onDelete, onSaved }: {
+  trip: TripRow; members: Member[]; userId: string; expense: Expense | null; scope: Scope; canEditGroup: boolean;
+  existingSplits: Split[]; nameOf: (uid: string) => string; onClose: () => void; onDelete?: () => void; onSaved: (e: Expense, s: Split[]) => void;
 }) {
   const { t } = useTranslation("common");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scope, setScope] = useState<Scope>(expense?.scope ?? (initialScope === "group" && !canEditGroup ? "personal" : initialScope));
   const [form, setForm] = useState({
     description: expense?.description ?? "",
     amount: expense ? String(expense.amount) : "",
     category: (expense?.category ?? "food") as Expense["category"],
-    date: expense?.date ?? new Date().toISOString().split("T")[0],
+    date: expense?.date ?? toISODate(new Date()),
     paid_by: expense?.paid_by ?? userId,
   });
-  const [between, setBetween] = useState<string[]>(
-    existingSplits.length ? existingSplits.map(s => s.user_id) : members.map(m => m.user_id)
-  );
-  const amount = parseFloat(form.amount) || 0;
-  const each = between.length ? amount / between.length : 0;
+  const existingEqual = existingSplits.length > 0 &&
+    existingSplits.every(s => Math.abs(Number(s.share_amount) - Number(existingSplits[0].share_amount)) <= 0.011);
+  const [mode, setMode] = useState<SplitMode>(existingSplits.length && !existingEqual ? "exact" : "equal");
+  const [between, setBetween] = useState<string[]>(existingSplits.length ? existingSplits.map(s => s.user_id) : members.map(m => m.user_id));
+  const [exact, setExact] = useState<Record<string, string>>(
+    Object.fromEntries(existingSplits.map(s => [s.user_id, String(s.share_amount)])));
+  const [weights, setWeights] = useState<Record<string, string>>({});
+
+  const amount = Math.round((parseFloat(form.amount) || 0) * 100) / 100;
   const toggle = (id: string) => setBetween(b => b.includes(id) ? b.filter(x => x !== id) : [...b, id]);
+
+  /** Per-person amounts for the current mode, or null when they don't add up. */
+  const shares = useMemo((): Record<string, number> | null => {
+    if (!between.length || !(amount > 0)) return null;
+    if (mode === "equal") {
+      const parts = splitByWeights(amount, between.map(() => 1));
+      return Object.fromEntries(between.map((u, i) => [u, parts[i]]));
+    }
+    if (mode === "shares") {
+      const w = between.map(u => Math.max(0, parseFloat(weights[u] ?? "1") || 0));
+      if (w.every(x => x === 0)) return null;
+      const parts = splitByWeights(amount, w);
+      return Object.fromEntries(between.map((u, i) => [u, parts[i]]));
+    }
+    return Object.fromEntries(between.map(u => [u, Math.round((parseFloat(exact[u] ?? "") || 0) * 100) / 100]));
+  }, [between, amount, mode, weights, exact]);
+  const assigned = shares ? Object.values(shares).reduce((a, b) => a + b, 0) : 0;
+  const diff = Math.round((amount - assigned) * 100) / 100;
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!(amount > 0)) { setError("Enter an amount greater than zero."); return; }
-    if (between.length === 0) { setError("Choose at least one person to split with."); return; }
+    if (!(amount > 0)) { setError(t("budget.errors.amount")); return; }
+    if (scope === "group") {
+      if (between.length === 0) { setError(t("budget.errors.nobody")); return; }
+      if (!shares) { setError(t("budget.errors.shares")); return; }
+      if (mode === "exact" && Math.abs(diff) > 0.009) {
+        setError(t("budget.errors.mismatch", { amount: formatCurrency(Math.abs(diff), trip.currency), dir: diff > 0 ? t("budget.short") : t("budget.over") }));
+        return;
+      }
+    }
     setLoading(true); setError(null);
     const supabase = createClient();
     const payload = {
-      paid_by: form.paid_by, amount, currency: trip.currency, category: form.category,
-      description: form.description.trim() || null, date: form.date,
+      paid_by: scope === "personal" ? userId : form.paid_by, amount, currency: trip.currency, category: form.category,
+      description: form.description.trim().slice(0, 200) || null, date: form.date, scope,
     };
-    let expenseId = expense?.id;
+    let saved: Expense;
     if (expense) {
-      const { error: err } = await supabase.from("expenses").update(payload).eq("id", expense.id);
-      if (err) { setError(err.message); setLoading(false); return; }
+      const { data, error: err } = await supabase.from("expenses").update(payload).eq("id", expense.id).select().single();
+      if (err || !data) { setError(t("budget.errors.save")); setLoading(false); return; }
+      saved = data as Expense;
       await supabase.from("expense_splits").delete().eq("expense_id", expense.id);
     } else {
       const { data, error: err } = await supabase.from("expenses").insert({ ...payload, trip_id: trip.id }).select().single();
-      if (err || !data) { setError(err?.message ?? "Couldn't save"); setLoading(false); return; }
-      expenseId = data.id;
+      if (err || !data) { setError(t("budget.errors.save")); setLoading(false); return; }
+      saved = data as Expense;
     }
-    // Split to the cent; the first person absorbs any rounding remainder.
-    const base = Math.floor((amount / between.length) * 100) / 100;
-    const remainder = Math.round((amount - base * between.length) * 100) / 100;
-    const { error: splitErr } = await supabase.from("expense_splits").insert(between.map((uid, i) => ({
-      expense_id: expenseId!, user_id: uid, share_amount: i === 0 ? base + remainder : base,
-      // the payer's own share is never "owed", so mark it settled
-      is_settled: uid === form.paid_by,
-    })));
+    const expenseId = saved.id;
+    let savedSplits: Split[] = [];
+    if (scope === "group" && shares) {
+      const { data: sp, error: splitErr } = await supabase.from("expense_splits").insert(between.map(uid => ({
+        expense_id: expenseId!, user_id: uid, share_amount: shares[uid] ?? 0,
+        // the payer's own share is never "owed", so it's settled from the start
+        is_settled: uid === payload.paid_by,
+      }))).select();
+      if (splitErr) { setLoading(false); setError(t("budget.errors.save")); return; }
+      savedSplits = (sp ?? []) as Split[];
+    }
     setLoading(false);
-    if (splitErr) { setError(splitErr.message); return; }
-    toast.success(expense ? "Expense updated" : "Expense added");
-    onSaved();
+    toast.success(expense ? t("budget.updated") : t("budget.added"));
+    onSaved(saved, savedSplits);
     onClose();
   }
 
   return (
-    <Modal open onOpenChange={o => { if (!o) onClose(); }} title={expense ? "Edit expense" : t("budget.addExpense")}>
+    <Modal open onOpenChange={o => { if (!o) onClose(); }} title={expense ? t("budget.editExpense") : t("budget.addExpense")}>
       <form onSubmit={submit} className="space-y-4" noValidate>
         <FormError>{error}</FormError>
+
+        {!expense && (
+          <Segmented label={t("budget.expenseType")} value={scope} onChange={setScope} className="w-full [&>button]:flex-1 [&>button]:justify-center"
+            options={[
+              ...(canEditGroup ? [{ id: "group" as Scope, label: t("budget.tabs.group"), icon: Users }] : []),
+              { id: "personal" as Scope, label: t("budget.personal"), icon: Lock },
+            ]} />
+        )}
+        <p className="-mt-2 text-[12px] text-ink-3">{scope === "group" ? t("budget.groupExplain") : t("budget.personalExplain")}</p>
+
         <div className="grid grid-cols-[1fr_auto] gap-3">
-          <Field label="Amount" htmlFor="ex-amount">
+          <Field label={t("budget.amount")} htmlFor="ex-amount">
             <Input id="ex-amount" type="number" inputMode="decimal" min="0" step="0.01" autoFocus required
                    value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
                    placeholder="0.00" className="text-[15px]" />
           </Field>
-          <Field label="Currency">
-            <div className="flex h-10 items-center rounded-[var(--radius-control)] border border-line bg-paper px-3 font-mono text-[13px] text-ink-2">
-              {trip.currency}
-            </div>
+          <Field label={t("trip.currency")}>
+            <div className="flex h-10 items-center rounded-[var(--radius-control)] border border-line bg-paper px-3 font-mono text-[13px] text-ink-2">{trip.currency}</div>
           </Field>
         </div>
 
-        <Field label="Description" htmlFor="ex-desc" optional>
-          <Input id="ex-desc" value={form.description} placeholder="Dinner at Ichiran"
+        <Field label={t("budget.description")} htmlFor="ex-desc" optional>
+          <Input id="ex-desc" value={form.description} placeholder={t("budget.descriptionPlaceholder")} maxLength={200}
                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
         </Field>
 
@@ -539,50 +861,84 @@ function ExpenseDialog({ trip, members, userId, expense, existingSplits, nameOf,
           </div>
         </fieldset>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t("budget.paidBy")} htmlFor="ex-paid">
-            <Select id="ex-paid" value={form.paid_by} onChange={e => setForm(f => ({ ...f, paid_by: e.target.value }))}>
-              {members.map(m => <option key={m.user_id} value={m.user_id}>{nameOf(m.user_id)}</option>)}
-            </Select>
-          </Field>
-          <Field label="Date" htmlFor="ex-date">
+        <div className={cn("grid gap-3", scope === "group" ? "grid-cols-2" : "grid-cols-1")}>
+          {scope === "group" && (
+            <Field label={t("budget.paidBy")} htmlFor="ex-paid">
+              <Select id="ex-paid" value={form.paid_by} onChange={e => setForm(f => ({ ...f, paid_by: e.target.value }))}>
+                {members.map(m => <option key={m.user_id} value={m.user_id}>{nameOf(m.user_id)}</option>)}
+              </Select>
+            </Field>
+          )}
+          <Field label={t("budget.date")} htmlFor="ex-date">
             <Input id="ex-date" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
           </Field>
         </div>
 
-        <fieldset>
-          <legend className="mb-1.5 flex w-full items-baseline justify-between text-[13px] font-medium text-ink">
-            <span>Split between</span>
-            {amount > 0 && between.length > 0 && (
-              <span className="font-mono text-[12px] font-normal text-ink-3">{formatCurrency(each, trip.currency)} each</span>
-            )}
-          </legend>
-          <div className="flex flex-wrap gap-1.5">
-            {members.map(m => {
-              const on = between.includes(m.user_id);
-              return (
-                <button key={m.user_id} type="button" aria-pressed={on} onClick={() => toggle(m.user_id)}
-                        className={cn("flex h-9 items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-[12.5px] transition-colors",
-                                      on ? "border-ink bg-ink text-paper" : "border-line-strong text-ink-2 hover:bg-sunken")}>
-                  <Avatar name={m.profiles?.display_name} src={m.profiles?.avatar_url} size={24} />
-                  {nameOf(m.user_id)}
-                  {on && <Check size={13} aria-hidden="true" />}
+        {scope === "group" && (
+          <fieldset className="rounded-[12px] border border-line p-3">
+            <legend className="px-1 text-[13px] font-medium text-ink">{t("budget.splitBetween")}</legend>
+            <div className="mb-3 flex gap-1" role="radiogroup" aria-label={t("budget.splitMode")}>
+              {(["equal", "exact", "shares"] as SplitMode[]).map(m => (
+                <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}
+                        className={cn("h-7 flex-1 rounded-full text-[12px] transition-colors",
+                                      mode === m ? "bg-ink text-paper" : "bg-sunken text-ink-2 hover:text-ink")}>
+                  {t(`budget.modes.${m}`)}
                 </button>
-              );
-            })}
-          </div>
-          {members.length > 1 && (
-            <div className="mt-2 flex gap-3 text-[12px]">
-              <button type="button" className="text-ink-2 underline-offset-2 hover:underline" onClick={() => setBetween(members.map(m => m.user_id))}>Everyone</button>
-              <button type="button" className="text-ink-2 underline-offset-2 hover:underline" onClick={() => setBetween([form.paid_by])}>Only the payer</button>
+              ))}
             </div>
-          )}
-        </fieldset>
+            <ul className="space-y-1.5">
+              {members.map(m => {
+                const on = between.includes(m.user_id);
+                return (
+                  <li key={m.user_id} className="flex items-center gap-2">
+                    <button type="button" aria-pressed={on} onClick={() => toggle(m.user_id)}
+                            className={cn("flex h-9 min-w-0 flex-1 items-center gap-2 rounded-full border py-1 ps-1 pe-3 text-[12.5px] transition-colors",
+                                          on ? "border-ink bg-ink text-paper" : "border-line-strong text-ink-2 hover:bg-sunken")}>
+                      <Avatar name={m.profiles?.display_name} src={m.profiles?.avatar_url} size={24} />
+                      <span className="truncate">{nameOf(m.user_id)}</span>
+                      {on && <Check size={13} className="ms-auto shrink-0" aria-hidden="true" />}
+                    </button>
+                    {on && mode === "exact" && (
+                      <Input type="number" inputMode="decimal" min="0" step="0.01" className="h-9 w-28 text-end"
+                             value={exact[m.user_id] ?? ""} placeholder="0.00" aria-label={t("budget.amountFor", { name: nameOf(m.user_id) })}
+                             onChange={e => setExact(x => ({ ...x, [m.user_id]: e.target.value }))} />
+                    )}
+                    {on && mode === "shares" && (
+                      <Input type="number" inputMode="numeric" min="0" step="1" className="h-9 w-20 text-end"
+                             value={weights[m.user_id] ?? "1"} aria-label={t("budget.sharesFor", { name: nameOf(m.user_id) })}
+                             onChange={e => setWeights(x => ({ ...x, [m.user_id]: e.target.value }))} />
+                    )}
+                    {on && mode !== "exact" && shares && (
+                      <span className="w-24 shrink-0 text-end font-mono text-[12px] text-ink-3">{formatCurrency(shares[m.user_id] ?? 0, trip.currency)}</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[12px]">
+              <div className="flex gap-3">
+                <button type="button" className="text-ink-2 underline-offset-2 hover:underline" onClick={() => setBetween(members.map(m => m.user_id))}>{t("budget.everyone")}</button>
+                <button type="button" className="text-ink-2 underline-offset-2 hover:underline" onClick={() => setBetween([form.paid_by])}>{t("budget.onlyPayer")}</button>
+                {mode === "exact" && amount > 0 && between.length > 0 && (
+                  <button type="button" className="text-ink-2 underline-offset-2 hover:underline" onClick={() => {
+                    const parts = splitByWeights(amount, between.map(() => 1));
+                    setExact(Object.fromEntries(between.map((u, i) => [u, String(parts[i])])));
+                  }}>{t("budget.fillEqually")}</button>
+                )}
+              </div>
+              {mode === "exact" && amount > 0 && (
+                <span className={cn("font-mono", Math.abs(diff) > 0.009 ? "text-negative" : "text-positive")}>
+                  {Math.abs(diff) > 0.009
+                    ? t("budget.leftToAssign", { amount: formatCurrency(diff, trip.currency) })
+                    : t("budget.balanced")}
+                </span>
+              )}
+            </div>
+          </fieldset>
+        )}
 
         <ModalActions>
-          {onDelete && (
-            <Button type="button" variant="danger" className="sm:mr-auto" onClick={onDelete}><Trash2 size={14} /> Delete</Button>
-          )}
+          {onDelete && <Button type="button" variant="danger" className="sm:me-auto" onClick={onDelete}><Trash2 size={14} /> {t("common.delete")}</Button>}
           <Button type="button" variant="ghost" onClick={onClose}>{t("common.cancel")}</Button>
           <Button type="submit" loading={loading}>{expense ? t("common.save") : t("budget.addExpense")}</Button>
         </ModalActions>

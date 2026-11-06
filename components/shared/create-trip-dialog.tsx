@@ -3,17 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { generateShareToken } from "@/lib/utils";
+import { CURRENCIES } from "@/lib/categories";
 import { Modal, ModalActions } from "@/components/ui/modal";
 import { Field, FormError, Input, Select } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 
 interface Props { open: boolean; onClose: () => void; userId: string }
 
-const CURRENCIES = ["PHP", "USD", "EUR", "JPY", "KRW", "GBP", "AUD", "SGD", "THB", "CNY"];
 const EMPTY = { title: "", destination: "", start_date: "", end_date: "", total_budget: "", currency: "PHP" };
 
 export function CreateTripDialog({ open, onClose, userId }: Props) {
@@ -30,9 +29,9 @@ export function CreateTripDialog({ open, onClose, userId }: Props) {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!form.title.trim()) { setError("Give your trip a name."); return; }
+    if (!form.title.trim()) { setError(t("createTrip.errors.name")); return; }
     if (form.start_date && form.end_date && form.end_date < form.start_date) {
-      setError("The return date can't be before departure."); return;
+      setError(t("createTrip.errors.dates")); return;
     }
     setLoading(true);
     setError(null);
@@ -51,7 +50,7 @@ export function CreateTripDialog({ open, onClose, userId }: Props) {
 
       const { data: trip, error: tripErr } = await supabase.from("trips").insert({
         owner_id: userId,
-        title: form.title.trim(),
+        title: form.title.trim().slice(0, 120),
         destination: form.destination.trim() || null,
         start_date: form.start_date || null,
         end_date: form.end_date || null,
@@ -62,16 +61,14 @@ export function CreateTripDialog({ open, onClose, userId }: Props) {
       }).select().single();
       if (tripErr) throw new Error(tripErr.message);
 
-      const { error: memberErr } = await supabase.from("trip_members")
-        .insert({ trip_id: trip.id, user_id: userId, role: "owner" });
-      if (memberErr) throw new Error(memberErr.message);
-
-      toast.success("Trip created");
+      // The owner membership row is created by a database trigger (trips_add_owner).
+      toast.success(t("createTrip.created"));
       setForm(EMPTY);
       onClose();
       router.push(`/trips/${trip.id}`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not create the trip.");
+      console.error(err);
+      setError(t("createTrip.errors.failed"));
     } finally {
       setLoading(false);
     }
@@ -79,25 +76,25 @@ export function CreateTripDialog({ open, onClose, userId }: Props) {
 
   return (
     <Modal open={open} onOpenChange={o => { if (!o) onClose(); }}
-           title="New trip" description="You can change any of this later.">
+           title={t("createTrip.title")} description={t("createTrip.subtitle")}>
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         <FormError>{error}</FormError>
 
-        <Field label="Trip name" htmlFor="ct-title">
+        <Field label={t("createTrip.name")} htmlFor="ct-title">
           <Input id="ct-title" autoFocus value={form.title} onChange={e => set("title", e.target.value)}
-                 placeholder="Spring in Tokyo" required />
+                 placeholder={t("createTrip.namePlaceholder")} maxLength={120} required />
         </Field>
 
         <Field label={t("trip.destination")} htmlFor="ct-dest" optional>
           <Input id="ct-dest" value={form.destination} onChange={e => set("destination", e.target.value)}
-                 placeholder="Tokyo, Japan" />
+                 placeholder={t("createTrip.destinationPlaceholder")} />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Departure" htmlFor="ct-start">
+          <Field label={t("createTrip.departure")} htmlFor="ct-start">
             <Input id="ct-start" type="date" value={form.start_date} onChange={e => set("start_date", e.target.value)} />
           </Field>
-          <Field label="Return" htmlFor="ct-end">
+          <Field label={t("createTrip.return")} htmlFor="ct-end">
             <Input id="ct-end" type="date" value={form.end_date} min={form.start_date || undefined}
                    onChange={e => set("end_date", e.target.value)} />
           </Field>
@@ -117,7 +114,7 @@ export function CreateTripDialog({ open, onClose, userId }: Props) {
 
         <ModalActions>
           <Button type="button" variant="ghost" onClick={onClose}>{t("common.cancel")}</Button>
-          <Button type="submit" loading={loading}>{loading ? "Creating…" : t("trip.createTrip")}</Button>
+          <Button type="submit" loading={loading}>{loading ? t("createTrip.creating") : t("trip.createTrip")}</Button>
         </ModalActions>
       </form>
     </Modal>

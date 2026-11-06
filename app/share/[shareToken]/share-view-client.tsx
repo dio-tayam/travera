@@ -3,9 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import { ArrowRight, Eye, Route } from "lucide-react";
-import { formatDateRange, parseDate, tripLength } from "@/lib/utils";
+import { formatDateRange, formatLongDate, tripLength } from "@/lib/utils";
 import { StopCard } from "@/components/shared/stop-card";
 import { DayStrip } from "@/components/shared/day-strip";
 import { LazyTripMap } from "@/components/shared/lazy-trip-map";
@@ -13,14 +12,13 @@ import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { Logo } from "@/components/ui/logo";
 import { Button } from "@/components/ui/button";
 import { Avatar, Badge, Figure } from "@/components/ui/primitives";
-import type { Database } from "@/types/database";
+import type { Database, SharedTrip } from "@/types/database";
 
-type Trip = Database["public"]["Tables"]["trips"]["Row"];
 type Day = Database["public"]["Tables"]["itinerary_days"]["Row"];
 type Stop = Database["public"]["Tables"]["stops"]["Row"];
 
 interface Props {
-  trip: Trip;
+  trip: SharedTrip["trip"];
   owner: { display_name: string | null; avatar_url: string | null } | null;
   days: Day[];
   stops: Stop[];
@@ -48,7 +46,7 @@ export function ShareViewClient({ trip, owner, days, stops }: Props) {
           <div className="ml-auto flex items-center gap-1.5">
             <LanguageSwitcher variant="compact" />
             <Button asChild size="sm">
-              <Link href="/login">Plan your own <ArrowRight size={14} /></Link>
+              <Link href="/login">{t("share.planOwn")} <ArrowRight size={14} className="rtl:-scale-x-100" /></Link>
             </Button>
           </div>
         </div>
@@ -58,7 +56,7 @@ export function ShareViewClient({ trip, owner, days, stops }: Props) {
         {/* Hero */}
         <div className="flex items-center gap-2.5">
           <Avatar name={owner?.display_name} src={owner?.avatar_url} size={24} />
-          <p className="text-[13px] text-ink-2">{t("share.sharedBy", { name: owner?.display_name ?? "a traveler" })}</p>
+          <p className="text-[13px] text-ink-2">{t("share.sharedBy", { name: owner?.display_name ?? t("common.traveler") })}</p>
         </div>
         <h1 className="display mt-4 text-[40px] text-ink text-balance sm:text-[56px]">{trip.title}</h1>
 
@@ -71,9 +69,9 @@ export function ShareViewClient({ trip, owner, days, stops }: Props) {
 
         <div className="panel mt-6 grid grid-cols-2 gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-4">
           <Figure label={t("trip.destination")} value={trip.destination ?? "—"} />
-          <Figure label="Dates" valueClassName="whitespace-normal" value={trip.start_date && trip.end_date ? formatDateRange(trip.start_date, trip.end_date) : "—"} />
-          <Figure label="Length" value={length ? `${length} days` : `${days.length} days`} />
-          <Figure label="Stops" value={stops.length} />
+          <Figure label={t("trip.dates")} valueClassName="whitespace-normal" value={<span suppressHydrationWarning>{trip.start_date && trip.end_date ? formatDateRange(trip.start_date, trip.end_date) : "—"}</span>} />
+          <Figure label={t("trip.length")} value={t("common.daysCount", { count: length ?? days.length })} />
+          <Figure label={t("share.stops")} value={stops.length} />
         </div>
 
         {/* Itinerary */}
@@ -82,9 +80,9 @@ export function ShareViewClient({ trip, owner, days, stops }: Props) {
             <div>
               <p className="eyebrow">{t("nav.itinerary")}</p>
               <h2 id="itin-heading" className="display mt-2 text-[32px] text-ink">
-                {day ? `Day ${dayIndex + 1}` : "No days planned yet"}
+                {day ? t("itinerary.day", { number: dayIndex + 1 }) : t("share.noDays")}
                 {day?.date && (
-                  <span className="text-ink-3"> · {new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" }).format(parseDate(day.date))}</span>
+                  <span suppressHydrationWarning className="text-ink-3"> · {formatLongDate(day.date, { month: "short" })}</span>
                 )}
               </h2>
             </div>
@@ -97,7 +95,7 @@ export function ShareViewClient({ trip, owner, days, stops }: Props) {
               {dayStops.length === 0 ? (
                 <div className="panel grid-texture flex flex-col items-center px-6 py-12 text-center">
                   <Route size={20} className="text-ink-3" aria-hidden="true" />
-                  <p className="mt-3 text-[13px] text-ink-2">No stops planned for this day.</p>
+                  <p className="mt-3 text-[13px] text-ink-2">{t("share.noStops")}</p>
                 </div>
               ) : (
                 <ol>
@@ -114,11 +112,11 @@ export function ShareViewClient({ trip, owner, days, stops }: Props) {
         {/* CTA */}
         <div className="mt-16 flex flex-col items-start justify-between gap-5 rounded-[var(--radius-panel)] bg-ink px-6 py-8 text-paper sm:flex-row sm:items-center sm:px-8">
           <div>
-            <p className="display text-[30px]">Planning a trip of your own?</p>
-            <p className="mt-1 text-[14px] text-paper/60">Itinerary, budget, packing and documents — shared with your whole group. Free.</p>
+            <p className="display text-[30px]">{t("share.ctaTitle")}</p>
+            <p className="mt-1 text-[14px] text-paper/60">{t("share.ctaDesc")}</p>
           </div>
           <Button asChild variant="accent" size="lg">
-            <Link href="/login">Start planning <ArrowRight size={16} /></Link>
+            <Link href="/login">{t("share.startPlanning")} <ArrowRight size={16} className="rtl:-scale-x-100" /></Link>
           </Button>
         </div>
       </main>

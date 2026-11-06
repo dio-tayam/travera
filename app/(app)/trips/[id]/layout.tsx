@@ -2,6 +2,7 @@ import { Sidebar } from "@/components/shared/sidebar";
 import { MobileNav } from "@/components/shared/mobile-nav";
 import { MobileTopBar } from "@/components/shared/mobile-top-bar";
 import { createClient } from "@/lib/supabase/server";
+import { LiveRefresh } from "@/components/shared/live-refresh";
 
 export default async function TripLayout({
   children,
@@ -29,6 +30,7 @@ export default async function TripLayout({
         </main>
       </div>
       <MobileNav tripId={id} />
+      <LiveRefresh channel={`layout:${id}`} specs={[{ table: "trips", filter: `id=eq.${id}`, event: "UPDATE" }]} />
     </div>
   );
 }

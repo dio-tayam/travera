@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import { ChevronRight, Compass, Plus } from "lucide-react";
 import { CreateTripDialog } from "@/components/shared/create-trip-dialog";
+import { LiveRefresh } from "@/components/shared/live-refresh";
 import { TripPass, tripStatus } from "@/components/shared/trip-pass";
 import { Button } from "@/components/ui/button";
 import { EmptyState, PageBody, PageHeader, SectionTitle } from "@/components/ui/primitives";
-import { daysUntil, formatDateRange, isPastTrip, tripLength } from "@/lib/utils";
+import { daysUntil, formatDateRange, formatLongDate, isPastTrip, tripLength } from "@/lib/utils";
 import type { Database } from "@/types/database";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -26,7 +26,7 @@ export function DashboardClient({ profile, trips, userId }: Props) {
     return () => document.removeEventListener("open-create-trip", open);
   }, []);
 
-  const name = profile?.display_name?.split(" ")[0] ?? "traveler";
+  const name = profile?.display_name?.split(" ")[0] ?? t("common.traveler");
 
   const { upcoming, past, next, stats } = useMemo(() => {
     const upcoming = trips
@@ -42,7 +42,7 @@ export function DashboardClient({ profile, trips, userId }: Props) {
       { label: t("dashboard.destinations"),  value: new Set(trips.map(tr => tr.destination).filter(Boolean)).size },
       { label: t("dashboard.collaborative"), value: trips.filter(tr => tr.memberCount > 1).length },
       { label: t("dashboard.avgDuration"),
-        value: lengths.length ? `${Math.round(lengths.reduce((a, b) => a + b, 0) / lengths.length)}d` : "—" },
+        value: lengths.length ? t("dashboard.avgDays", { n: Math.round(lengths.reduce((a, b) => a + b, 0) / lengths.length) }) : "—" },
     ];
     return { upcoming, past, next, stats };
   }, [trips, t]);
@@ -56,14 +56,18 @@ export function DashboardClient({ profile, trips, userId }: Props) {
   return (
     <>
       <PageBody>
+        <LiveRefresh channel={`dashboard:${userId}`} specs={[
+          { table: "trip_members", filter: `user_id=eq.${userId}` },
+          { table: "trips" },
+        ]} />
         <PageHeader
           eyebrow={<span suppressHydrationWarning>
-            {new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(new Date())}
+            {formatLongDate(new Date())}
           </span>}
           title={t("dashboard.greeting", { name })}
           description={next
-            ? <>Next up: <span className="font-medium text-ink">{next.title}</span> — {tripStatus(next).label.toLowerCase()}.</>
-            : trips.length === 0 ? "Where to next? Start a trip and plan it day by day." : undefined}
+            ? <>{t("dashboard.nextUp")} <span className="font-medium text-ink">{next.title}</span> — <span suppressHydrationWarning>{tripStatus(next, t).label}</span></>
+            : trips.length === 0 ? t("dashboard.whereNext") : undefined}
           actions={newTripButton}
         />
 
@@ -88,21 +92,21 @@ export function DashboardClient({ profile, trips, userId }: Props) {
           <EmptyState
             className="mt-10"
             icon={Compass}
-            title="No trips yet"
+            title={t("dashboard.noTripsTitle")}
             description={t("dashboard.noTrips")}
-            action={<Button onClick={() => setShowCreate(true)}><Plus size={16} /> Plan your first trip</Button>}
+            action={<Button onClick={() => setShowCreate(true)}><Plus size={16} /> {t("dashboard.planFirst")}</Button>}
           />
         ) : (
           <>
             <section className="mt-10" aria-labelledby="upcoming-heading">
-              <SectionTitle meta={upcoming.length}><span id="upcoming-heading">Upcoming</span></SectionTitle>
+              <SectionTitle meta={upcoming.length}><span id="upcoming-heading">{t("dashboard.upcomingTitle")}</span></SectionTitle>
               {upcoming.length > 0 ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {upcoming.map(trip => <TripPass key={trip.id} trip={trip} />)}
                 </div>
               ) : (
                 <div className="panel flex flex-col items-start justify-between gap-3 px-5 py-5 sm:flex-row sm:items-center">
-                  <p className="text-[13px] text-ink-2">Nothing on the calendar. Time to plan the next one?</p>
+                  <p className="text-[13px] text-ink-2">{t("dashboard.nothingPlanned")}</p>
                   {newTripButton}
                 </div>
               )}
@@ -121,11 +125,11 @@ export function DashboardClient({ profile, trips, userId }: Props) {
                           <p className="truncate text-[12.5px] text-ink-3">{trip.destination ?? "—"}</p>
                         </div>
                         {trip.start_date && trip.end_date && (
-                          <span className="hidden font-mono text-[11.5px] text-ink-3 sm:block">
+                          <span suppressHydrationWarning className="hidden font-mono text-[11.5px] text-ink-3 sm:block">
                             {formatDateRange(trip.start_date, trip.end_date)}
                           </span>
                         )}
-                        <ChevronRight size={16} className="text-ink-3 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                        <ChevronRight size={16} className="text-ink-3 transition-transform group-hover:translate-x-0.5 rtl:-scale-x-100" aria-hidden="true" />
                       </Link>
                     </li>
                   ))}

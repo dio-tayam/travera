@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor,
   useSensor, useSensors, type DragEndEvent,
@@ -14,7 +13,8 @@ import {
 import { toast } from "sonner";
 import { CalendarPlus, Map as MapIcon, Plus, Route, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { parseDate } from "@/lib/utils";
+import { useRealtime } from "@/lib/use-realtime";
+import { formatLongDate, toISODate, parseDate } from "@/lib/utils";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { StopCard } from "@/components/shared/stop-card";
 import { DayStrip } from "@/components/shared/day-strip";
@@ -55,12 +55,10 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  useEffect(() => {
-    const ch = supabase.channel(`stops:${trip.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "stops", filter: `trip_id=eq.${trip.id}` }, () => refresh())
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [trip.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useRealtime(`itinerary:${trip.id}`, [
+    { table: "stops", filter: `trip_id=eq.${trip.id}` },
+    { table: "itinerary_days", filter: `trip_id=eq.${trip.id}` },
+  ], () => refresh());
 
   const dayIndex = days.findIndex(d => d.id === selectedDay);
   const day = days[dayIndex];
@@ -91,18 +89,24 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
   function refresh() {
     supabase.from("stops").select("*").eq("trip_id", trip.id).order("order_index")
       .then(({ data }) => { if (data) setStops(data); });
+    supabase.from("itinerary_days").select("*").eq("trip_id", trip.id).order("day_number")
+      .then(({ data }) => {
+        if (!data) return;
+        setDays(data);
+        setSelectedDay(cur => cur && data.some((d: Day) => d.id === cur) ? cur : data[0]?.id ?? null);
+      });
   }
 
   async function addDay() {
     setAddingDay(true);
     const nextNum = (days[days.length - 1]?.day_number ?? 0) + 1;
     const date = trip.start_date
-      ? new Date(new Date(trip.start_date).getTime() + (nextNum - 1) * 86_400_000).toISOString().split("T")[0]
+      ? toISODate(new Date(parseDate(trip.start_date).getFullYear(), parseDate(trip.start_date).getMonth(), parseDate(trip.start_date).getDate() + nextNum - 1))
       : null;
     const { data, error } = await supabase.from("itinerary_days")
       .insert({ trip_id: trip.id, day_number: nextNum, date }).select().single();
     setAddingDay(false);
-    if (error) { toast.error("Couldn't add a day"); return; }
+    if (error) { toast.error(t("itinerary.errors.addDay")); return; }
     setDays(d => [...d, data]);
     setSelectedDay(data.id);
   }
@@ -115,31 +119,31 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
     setStops(prev => [...prev.filter(s => s.day_id !== selectedDay), ...reordered]);
     const results = await Promise.all(reordered.map(s =>
       supabase.from("stops").update({ order_index: s.order_index }).eq("id", s.id)));
-    if (results.some(r => r.error)) { toast.error("Couldn't save the new order"); refresh(); }
+    if (results.some(r => r.error)) { toast.error(t("itinerary.errors.reorder")); refresh(); }
   }
 
   async function deleteStop(id: string) {
     const prev = stops;
     setStops(p => p.filter(s => s.id !== id));
     const { error } = await supabase.from("stops").delete().eq("id", id);
-    if (error) { setStops(prev); toast.error("Couldn't remove the stop"); return; }
-    toast.success("Stop removed");
+    if (error) { setStops(prev); toast.error(t("itinerary.errors.remove")); return; }
+    toast.success(t("itinerary.removed"));
   }
 
-  const dayTitle = day ? `Day ${dayIndex + 1}` : "Itinerary";
+  const dayTitle = day ? t("itinerary.day", { number: dayIndex + 1 }) : t("nav.itinerary");
   const daySubtitle = day?.date
-    ? new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(parseDate(day.date))
+    ? formatLongDate(day.date)
     : trip.title;
 
   return (
     <div className="flex h-full overflow-hidden">
       {/* ── Planner column ───────────────────────────────────────── */}
       <section className="flex h-full w-full flex-col bg-paper lg:w-[440px] lg:shrink-0 lg:border-r lg:border-line"
-               aria-label="Day planner">
+               aria-label={t("itinerary.planner")}>
         <header className="px-5 pb-4 pt-6 sm:px-6">
-          <p className="eyebrow">{t("nav.itinerary")} · {days.length} {days.length === 1 ? "day" : "days"}</p>
+          <p className="eyebrow">{t("nav.itinerary")} · {t("common.daysCount", { count: days.length })}</p>
           <h1 className="display mt-2 text-[34px] text-ink">{dayTitle}</h1>
-          <p className="mt-0.5 text-[13px] text-ink-2">{daySubtitle}</p>
+          <p suppressHydrationWarning className="mt-0.5 text-[13px] text-ink-2">{daySubtitle}</p>
         </header>
 
         {/* Day strip */}
@@ -153,9 +157,9 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
           {!selectedDay ? (
             <div className="grid-texture flex flex-col items-center rounded-[var(--radius-panel)] border border-line px-6 py-14 text-center">
               <CalendarPlus size={20} className="text-ink-3" aria-hidden="true" />
-              <p className="mt-3 text-[15px] font-semibold text-ink">Start with day one</p>
-              <p className="mt-1 max-w-xs text-[13px] text-ink-2">Add a day, then fill it with places to go, eat and stay.</p>
-              {canEdit && <Button className="mt-5" onClick={addDay} loading={addingDay}>Add day 1</Button>}
+              <p className="mt-3 text-[15px] font-semibold text-ink">{t("itinerary.startTitle")}</p>
+              <p className="mt-1 max-w-xs text-[13px] text-ink-2">{t("itinerary.startDesc")}</p>
+              {canEdit && <Button className="mt-5" onClick={addDay} loading={addingDay}>{t("itinerary.addDayOne")}</Button>}
             </div>
           ) : (
             <>
@@ -176,7 +180,7 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
               ) : (
                 <div className="flex flex-col items-center px-6 py-10 text-center">
                   <Route size={20} className="text-ink-3" aria-hidden="true" />
-                  <p className="mt-3 text-[13px] text-ink-2">Nothing planned for this day yet.</p>
+                  <p className="mt-3 text-[13px] text-ink-2">{t("itinerary.emptyDay")}</p>
                 </div>
               )}
 
@@ -207,11 +211,11 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
         </Button>
       )}
       {!isDesktop && mapOpen && (
-        <div className="fixed inset-0 z-40 flex flex-col bg-paper animate-sheet" role="dialog" aria-modal="true" aria-label="Map">
+        <div className="fixed inset-0 z-40 flex flex-col bg-paper animate-sheet" role="dialog" aria-modal="true" aria-label={t("nav.map")}>
           <div className="flex h-14 items-center justify-between border-b border-line px-4">
             <div>
               <p className="eyebrow">{dayTitle}</p>
-              <p className="text-[13px] text-ink">{dayStops.length} {dayStops.length === 1 ? "stop" : "stops"}</p>
+              <p className="text-[13px] text-ink">{t("itinerary.stopsCount", { count: dayStops.length })}</p>
             </div>
             <Button variant="secondary" size="icon" onClick={() => setMapOpen(false)} aria-label={t("itinerary.hideMap")}>
               <X size={18} />

@@ -4,7 +4,6 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { useTranslation } from "react-i18next";
-import "@/lib/i18n";
 import { useEffect, useRef } from "react";
 import { GripVertical, MapPin, MapPinOff, MoreHorizontal, Pencil, Plane, Trash2 } from "lucide-react";
 import { STOP_META } from "@/lib/categories";
@@ -26,10 +25,10 @@ interface StopCardProps {
   legToNext?: { label: string; estimated: boolean; flight?: boolean } | null;
 }
 
-function formatDuration(min: number) {
-  if (min < 60) return `${min} min`;
+function formatDuration(min: number, t: (k: string, o?: Record<string, unknown>) => string) {
+  if (min < 60) return t("time.minutes", { m: min });
   const h = Math.floor(min / 60), m = min % 60;
-  return m ? `${h}h ${m}m` : `${h}h`;
+  return m ? t("time.hoursMinutes", { h, m }) : t("time.hours", { h });
 }
 
 /** One stop on the day timeline. */
@@ -58,7 +57,7 @@ export function StopCard({ stop, index, onEdit, onDelete, readOnly, selected, on
         )}>
       <span className="relative z-[1] grid h-8 w-8 shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-[11px] font-medium transition-colors"
             style={selected ? { borderColor: meta.color, background: meta.color, color: "#fff" } : { borderColor: meta.color, color: meta.color, background: "var(--color-surface)" }}
-            aria-label={`Stop ${index + 1}`}>
+            aria-label={t("itinerary.stopN", { n: index + 1 })}>
         {index + 1}
       </span>
 
@@ -78,7 +77,7 @@ export function StopCard({ stop, index, onEdit, onDelete, readOnly, selected, on
               {stop.start_time && (
                 <span className="font-mono text-ink-3">
                   {stop.start_time.slice(0, 5)}
-                  {stop.duration_minutes ? ` · ${formatDuration(stop.duration_minutes)}` : ""}
+                  {stop.duration_minutes ? ` · ${formatDuration(stop.duration_minutes, t)}` : ""}
                 </span>
               )}
             </p>
@@ -91,7 +90,7 @@ export function StopCard({ stop, index, onEdit, onDelete, readOnly, selected, on
             )}
             {!hasLocation && !readOnly && (
               <p className="mt-1 flex items-center gap-1.5 text-[12px] text-warning">
-                <MapPinOff size={12} aria-hidden="true" /> Not on the map — edit to add a location
+                <MapPinOff size={12} aria-hidden="true" /> {t("itinerary.notOnMap")}
               </p>
             )}
             {stop.notes && <p className="mt-2 line-clamp-2 text-[12.5px] text-ink-2">{stop.notes}</p>}
@@ -100,7 +99,7 @@ export function StopCard({ stop, index, onEdit, onDelete, readOnly, selected, on
           {!readOnly && (
             <div className="-mr-2 -mt-1 flex shrink-0 items-center">
               <Menu.Root>
-                <Menu.Trigger aria-label={`Options for ${stop.title}`}
+                <Menu.Trigger aria-label={t("common.optionsFor", { name: stop.title })}
                               className="grid h-8 w-8 place-items-center rounded-md text-ink-3 transition-colors hover:bg-sunken hover:text-ink data-[state=open]:bg-sunken">
                   <MoreHorizontal size={16} />
                 </Menu.Trigger>
@@ -119,7 +118,7 @@ export function StopCard({ stop, index, onEdit, onDelete, readOnly, selected, on
                 </Menu.Portal>
               </Menu.Root>
               <button ref={setActivatorNodeRef} {...attributes} {...listeners}
-                      aria-label={`Reorder ${stop.title}`}
+                      aria-label={t("itinerary.reorder", { name: stop.title })}
                       className="grid h-8 w-6 cursor-grab touch-none place-items-center rounded-md text-ink-3 hover:text-ink active:cursor-grabbing">
                 <GripVertical size={15} />
               </button>
@@ -129,9 +128,9 @@ export function StopCard({ stop, index, onEdit, onDelete, readOnly, selected, on
       </div>
       {legToNext && (
         <p className={cn("mt-2 flex items-center gap-1.5 pl-1 font-mono text-[11px]", legToNext.flight ? "text-accent-ink" : "text-ink-3")}
-           title={legToNext.flight ? "Too far to travel by road — estimated as a flight" : legToNext.estimated ? "Straight-line estimate" : "Route from OpenStreetMap"}>
+           title={legToNext.flight ? t("itinerary.legFlight") : legToNext.estimated ? t("itinerary.legEstimate") : t("itinerary.legRoute")}>
           {legToNext.flight
-            ? <><Plane size={11} className="rotate-90" aria-hidden="true" /> Flight ≈ {legToNext.label}</>
+            ? <><Plane size={11} className="rotate-90" aria-hidden="true" /> {t("itinerary.flightApprox", { label: legToNext.label })}</>
             : <><span aria-hidden="true">↓</span> {legToNext.estimated && "≈ "}{legToNext.label}</>}
         </p>
       )}

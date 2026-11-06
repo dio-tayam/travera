@@ -16,6 +16,7 @@ npm run lint     # Run ESLint
 Copy `.env.local.example` to `.env.local` and fill in:
 - `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — Supabase anon key
+- `SUPABASE_SERVICE_ROLE_KEY` (optional, server-only) — invite emails for new users; Storage cleanup on trip delete
 
 ## Architecture
 
@@ -30,7 +31,10 @@ Uses the App Router with two route groups:
   - `dashboard/` — Trip list (server component fetches trips, passes to client)
   - `trips/[id]/` — Trip detail with sub-routes: `itinerary/`, `budget/`, `packing/`, `documents/`
 - `app/auth/callback/route.ts` — OAuth code exchange handler
-- `app/share/[shareToken]/` — Public trip share view (no auth required)
+- `app/share/[shareToken]/` — Public trip share view (no auth required) — loads via the `get_shared_trip` RPC, never direct table reads
+- `app/admin/` — Admin console (overview, users, trips, activity log, reports). `requireAdmin()` (`lib/admin.ts`) 404s non-admins; every `admin_*` RPC re-checks `is_admin()`. English-only by design.
+- `app/api/trips/[id]/` — `DELETE` (owner deletes trip + Storage files); `invitations/` (owner invites by email with a role)
+- `app/suspended/` — Shown to suspended accounts (the `(app)` layout redirects there)
 
 ### Server vs. Client Components
 
@@ -54,7 +58,20 @@ All types are in `types/database.ts`. Key tables:
 - `packing_items` — Packing lists (rule-based suggestions in `lib/packing-suggestions.ts`)
 - `documents` — File storage for travel docs
 
-SQL schema files are in `supabase/`: `schema.sql`, `setup-storage.sql`, `fix-rls.sql`.
+SQL files in `supabase/`, applied in order: `schema.sql` → `fix-rls.sql` → `setup-storage.sql` → `trip-invitations.sql` → **`v2-roles-privacy-admin.sql`** → `v2.1-realtime.sql` (current RLS — it drops and recreates every policy; re-runnable). Older files' policies are superseded by v2.
+
+### Roles, privacy & RLS (source of truth: `v2-roles-privacy-admin.sql`)
+
+- Roles per trip: **owner** (settings, sharing, travelers, delete trip/any group doc), **editor** (edits group itinerary/budget/packing/docs), **viewer** (reads group content). The matrix shown in the UI lives in `lib/roles.ts` — keep it in sync with the policies.
+- Group vs. personal: `expenses.scope` and `packing_items.scope` are `group | personal`; `documents.visibility` is `group | private`; `member_budgets` is per-user. Personal/private rows are visible **only to their creator** (not owners, not admins). Every member, viewers included, can manage their own personal rows.
+- Writes that need narrower rights than a table policy go through SECURITY DEFINER RPCs: `settle_debt` (editors or the creditor), `set_packing_packed` (managers or the assignee), `add_trip_member_by_email`, `accept_trip_invitations`.
+- Ownership columns (`created_by`, `uploaded_by`, `storage_path`, `trips.owner_id`) are stamped/locked by triggers; the owner membership row is created by the `trips_add_owner` trigger (clients must not insert it).
+- Storage objects are readable only when the matching `documents` row is visible; paths are `{trip_id}/{user_id}/{ts}_{name}`. Delete the Storage object *before* the row.
+- `audit_logs` is append-only (triggers only) and feeds the trip activity feed + admin log; private items are logged without content.
+- Admins: `admin_users` table (bootstrap with an INSERT in the SQL editor); suspensions in `user_suspensions` make every membership check fail.
+- **Realtime**: use `useRealtime()` (`lib/use-realtime.ts`) — never a bare `supabase.channel()`. It hands the session JWT to Realtime before joining (joining as anon makes RLS drop every event), adds unfiltered DELETE listeners (Supabase doesn't deliver filtered deletes), debounces, and catches up on tab focus / reconnect. Server-rendered pages use `<LiveRefresh>` (router.refresh on change); admin pages poll with `<AutoRefresh>`. Tables must be in the `supabase_realtime` publication (`v2.1-realtime.sql`). After a local save, merge the returned row into state immediately, then refetch.
+- **Workspaces**: an admin is also a traveler. `ModeSwitcher` (Traveler ↔ Admin) renders only when `useIsAdmin()` is true; the choice is stored in the `travera_mode` cookie and `/auth/callback` sends admins who last used Admin straight to `/admin`.
+- `lib/trip-access.ts` `requireTrip()` returns `role`, `canEdit`, `isOwner` for UI shaping only — RLS is the real enforcement.
 
 ### Styling
 
@@ -73,7 +90,11 @@ Use `cn()` from `lib/utils.ts` (wraps `clsx` + `tailwind-merge`) for conditional
 
 ### i18n
 
-10 languages supported (EN, JA, KO, DE, NL, FR, ES, ZH, PT, AR) via i18next. Translation files live in `locales/[lang]/common.json`. Use the `useTranslation("common")` hook in client components. `lib/i18n.ts` configures language detection (browser → localStorage). The `I18nProvider` component wraps the `(app)` layout.
+10 languages supported (EN, JA, KO, DE, NL, FR, ES, ZH, PT, AR) via i18next. Translation files live in `locales/[lang]/common.json`; `en` is the source of truth and every key must exist in all ten. Use `useTranslation("common")` in client components — **no hard-coded UI strings**.
+- i18n always initialises in English so SSR and the first client render match; `I18nProvider` (in the root layout) then applies the saved/browser language, sets `<html lang dir>` (Arabic is RTL — prefer logical classes like `ms-`/`ps-`/`start-`) and the formatting locale.
+- Format dates/money with `lib/utils.ts` helpers (`formatCurrency`, `formatDate`, `formatLongDate`, `formatRelative`…) — they follow the active language. Never use `Intl.*` with a hard-coded `"en-US"`.
+- Plurals use i18next suffixes (`_one`/`_other`; Arabic also `_zero`/`_two`/`_few`/`_many`; ja/ko/zh only `_other`).
+- Packing categories are stored as English keys and displayed via `packing.cats.*`; suggestions come from `suggest.items.*`.
 
 ### Key Libraries
 
