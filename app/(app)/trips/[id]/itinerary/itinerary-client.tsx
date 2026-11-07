@@ -18,6 +18,7 @@ import { formatLongDate, toISODate, parseDate } from "@/lib/utils";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { StopCard } from "@/components/shared/stop-card";
 import { DayStrip } from "@/components/shared/day-strip";
+import { ConfirmDialog } from "@/components/ui/confirm";
 import type { PlaceDraft } from "@/components/shared/trip-map";
 import { estimateLeg, formatDistance, formatTravelTime, type Leg } from "@/lib/maps";
 import { LazyTripMap } from "@/components/shared/lazy-trip-map";
@@ -48,6 +49,7 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
   const [legs, setLegs] = useState<Record<string, Leg>>({});
   const [mapOpen, setMapOpen] = useState(false);
   const [addingDay, setAddingDay] = useState(false);
+  const [removingDay, setRemovingDay] = useState<Day | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -111,6 +113,38 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
     setSelectedDay(data.id);
   }
 
+  async function removeDay() {
+    if (!removingDay) return;
+    const removedIndex = days.findIndex(d => d.id === removingDay.id);
+    const { error } = await supabase.from("itinerary_days").delete()
+      .eq("id", removingDay.id).eq("trip_id", trip.id);
+    if (error) { toast.error(t("itinerary.errors.removeDay")); return; }
+
+    const remaining = days.filter(d => d.id !== removingDay.id);
+    const normalized = remaining.map((d, index) => ({
+      ...d,
+      day_number: index + 1,
+      date: trip.start_date
+        ? toISODate(new Date(parseDate(trip.start_date).getFullYear(), parseDate(trip.start_date).getMonth(), parseDate(trip.start_date).getDate() + index))
+        : d.date,
+    }));
+    const updates = await Promise.all(normalized.map(d =>
+      supabase.from("itinerary_days").update({ day_number: d.day_number, date: d.date }).eq("id", d.id)
+    ));
+    setDays(normalized);
+    setStops(current => current.filter(stop => stop.day_id !== removingDay.id));
+    setSelectedDay(current => current === removingDay.id
+      ? normalized[Math.min(removedIndex, normalized.length - 1)]?.id ?? null
+      : current);
+    setRemovingDay(null);
+    if (updates.some(result => result.error)) {
+      toast.error(t("itinerary.errors.resequenceDays"));
+      refresh();
+      return;
+    }
+    toast.success(t("itinerary.dayRemoved"));
+  }
+
   async function handleDragEnd({ active, over }: DragEndEvent) {
     if (!over || active.id === over.id) return;
     const from = dayStops.findIndex(s => s.id === active.id);
@@ -149,7 +183,9 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
         {/* Day strip */}
         <div className="border-b border-line">
           <DayStrip days={days} selected={selectedDay} onSelect={setSelectedDay}
-                    onAdd={canEdit ? addDay : undefined} adding={addingDay} className="px-5 pb-4 sm:px-6" />
+                    onAdd={canEdit ? addDay : undefined}
+                    onRemove={canEdit ? id => setRemovingDay(days.find(d => d.id === id) ?? null) : undefined}
+                    adding={addingDay} className="px-5 pb-4 sm:px-6" />
         </div>
 
         {/* Stops */}
@@ -234,6 +270,11 @@ export function ItineraryClient({ trip, initialDays, initialStops, canEdit }: Pr
                        near={searchBias}
                        nextOrder={dayStops.length} onSaved={refresh} />
       )}
+
+      <ConfirmDialog open={!!removingDay} onClose={() => setRemovingDay(null)} onConfirm={removeDay}
+                     title={t("itinerary.deleteDayTitle", { day: removingDay ? days.findIndex(d => d.id === removingDay.id) + 1 : "" })}
+                     description={t("itinerary.deleteDayDescription")}
+                     confirmLabel={t("itinerary.removeDay")} />
     </div>
   );
 }

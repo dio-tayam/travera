@@ -230,6 +230,7 @@ export interface Database {
         Returns: "added" | "already_member" | "not_found";
       };
       accept_trip_invitations: { Args: Record<string, never>; Returns: number };
+      join_trip_by_code: { Args: { p_code: string }; Returns: Json };
       get_shared_trip: { Args: { p_token: string }; Returns: SharedTrip | null };
       settle_debt: { Args: { p_trip_id: string; p_from: string; p_to: string }; Returns: number };
       set_packing_packed: { Args: { p_item_id: string; p_packed: boolean }; Returns: undefined };

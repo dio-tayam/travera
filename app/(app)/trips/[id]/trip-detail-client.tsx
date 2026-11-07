@@ -390,7 +390,7 @@ export function TripDetailClient({ trip: initialTrip, role, userId, members, dat
         </div>
 
         <aside className="min-w-0 space-y-8 lg:sticky lg:top-6">
-          <TravelersPanel tripId={trip.id} tripTitle={trip.title} members={members} invitations={data.invitations}
+          <TravelersPanel tripId={trip.id} tripTitle={trip.title} inviteCode={trip.share_token} members={members} invitations={data.invitations}
                           userId={userId} role={role} />
           <ActivityFeed tripId={trip.id} initial={data.activity} members={members} userId={userId} currency={cur} />
           {!canEdit && (

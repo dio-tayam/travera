@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Check, ChevronDown, Clock, Info, LogOut, Mail, MoreHorizontal, UserMinus, UserPlus, X } from "lucide-react";
+import { Check, ChevronDown, Clock, Copy, Info, LogOut, Mail, MoreHorizontal, UserMinus, UserPlus, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn, formatRelative } from "@/lib/utils";
 import { PERMISSIONS, ROLE_META } from "@/lib/roles";
@@ -25,8 +25,8 @@ export function RoleBadge({ role }: { role: Role }) {
   return <Badge tone={tone}><Icon size={11} aria-hidden="true" /> {t(`roles.${role}`)}</Badge>;
 }
 
-export function TravelersPanel({ tripId, tripTitle, members: initialMembers, invitations: initialInvites, userId, role }: {
-  tripId: string; tripTitle: string; members: Member[]; invitations: TripInvitationRow[]; userId: string; role: Role;
+export function TravelersPanel({ tripId, tripTitle, inviteCode, members: initialMembers, invitations: initialInvites, userId, role }: {
+  tripId: string; tripTitle: string; inviteCode: string | null; members: Member[]; invitations: TripInvitationRow[]; userId: string; role: Role;
 }) {
   const { t } = useTranslation("common");
   const router = useRouter();
@@ -40,6 +40,7 @@ export function TravelersPanel({ tripId, tripTitle, members: initialMembers, inv
   const [showPerms, setShowPerms] = useState(false);
   const [removing, setRemoving] = useState<Member | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Pick up server data after router.refresh() (e.g. a newly added traveler).
   useEffect(() => setMembers(initialMembers), [initialMembers]);
@@ -91,6 +92,18 @@ export function TravelersPanel({ tripId, tripTitle, members: initialMembers, inv
     setInvites(p => p.filter(i => i.id !== inv.id));
     const { error } = await supabase.from("trip_invitations").delete().eq("trip_id", tripId).eq("email", inv.email);
     if (error) { setInvites(prev); toast.error(t("common.error")); }
+  }
+
+  async function copyInviteCode() {
+    try {
+      if (!inviteCode) return;
+      await navigator.clipboard.writeText(inviteCode);
+      setCopiedCode(true);
+      window.setTimeout(() => setCopiedCode(false), 1800);
+      toast.success(t("invite.codeCopied"));
+    } catch {
+      toast.error(t("invite.codeCopyFailed"));
+    }
   }
 
   async function leave() {
@@ -220,7 +233,18 @@ export function TravelersPanel({ tripId, tripTitle, members: initialMembers, inv
       </ul>
 
       {isOwner && (
-        <form onSubmit={invite} className="panel mt-3 space-y-2.5 px-4 py-4">
+        <div className="panel mt-3 space-y-4 px-4 py-4">
+        <div>
+          <p className="flex items-center gap-2 text-[13px] font-medium text-ink"><UserPlus size={14} aria-hidden="true" /> {t("invite.codeTitle")}</p>
+          <p className="mt-1 text-[11.5px] text-ink-3">{t("invite.codeHint")}</p>
+          <div className="mt-2 flex gap-2">
+            <code className="flex h-10 min-w-0 flex-1 items-center truncate rounded-[var(--radius-control)] border border-line bg-paper px-3 font-mono text-[12px] text-ink-2" dir="ltr">{inviteCode ?? "—"}</code>
+            <Button type="button" variant="secondary" onClick={copyInviteCode} disabled={!inviteCode}>
+              <Copy size={14} /> {copiedCode ? t("invite.codeCopied") : t("invite.copyCode")}
+            </Button>
+          </div>
+        </div>
+        <form onSubmit={invite} className="space-y-2.5 border-t border-line pt-4">
           <label htmlFor="invite-email" className="flex items-center gap-2 text-[13px] font-medium text-ink">
             <UserPlus size={14} aria-hidden="true" /> {t("invite.title")}
           </label>
@@ -238,6 +262,7 @@ export function TravelersPanel({ tripId, tripTitle, members: initialMembers, inv
           </div>
           <p className="text-[11.5px] text-ink-3">{t("invite.hint")}</p>
         </form>
+        </div>
       )}
 
       <ConfirmDialog open={!!removing} onClose={() => setRemoving(null)} onConfirm={async () => { if (removing) await remove(removing); }}

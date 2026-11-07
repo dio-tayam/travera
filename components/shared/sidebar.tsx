@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, LogOut, PanelLeftClose, PanelLeftOpen, Plus, Plane } from "lucide-react";
+import { ArrowLeft, Compass, KeyRound, LogOut, PanelLeftClose, PanelLeftOpen, Plane, Plus } from "lucide-react";
 import { cn, formatDateRange, formatShortDate } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { LanguageSwitcher } from "./language-switcher";
@@ -139,7 +139,7 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
             <button
               onClick={() => document.dispatchEvent(new CustomEvent("open-create-trip"))}
               className={cn(
-                "mb-4 flex h-10 w-full items-center gap-2 rounded-[var(--radius-control)] bg-ink text-[13px] font-medium text-paper",
+                "mb-3 flex h-10 w-full items-center gap-2 rounded-[var(--radius-control)] bg-ink text-[13px] font-medium text-paper",
                 "transition-colors hover:bg-[#2a2d35]",
                 collapsed ? "justify-center" : "px-3"
               )}
@@ -151,6 +151,20 @@ export function Sidebar({ trip }: { trip?: TripSummary | null }) {
             </button>
             <NavLink href="/dashboard" icon={Plane} label={t("dashboard.myTrips")}
                      active={pathname === "/dashboard"} collapsed={collapsed} />
+            <button
+              type="button"
+              onClick={() => document.dispatchEvent(new CustomEvent("open-join-trip"))}
+              title={collapsed ? t("sidebar.joinTrip") : undefined}
+              className={cn(
+                "flex h-9 w-full items-center gap-3 rounded-[var(--radius-control)] text-[13.5px] text-ink-2 transition-colors hover:bg-sunken hover:text-ink",
+                collapsed ? "justify-center" : "px-2.5"
+              )}
+            >
+              <KeyRound size={16} aria-hidden="true" className="shrink-0" />
+              {!collapsed && <span className="truncate">{t("sidebar.joinTrip")}</span>}
+            </button>
+            <NavLink href="/" icon={Compass} label={t("sidebar.explore")}
+                     collapsed={collapsed} />
 
             {!collapsed && recent.length > 0 && (
               <div className="mt-6">
