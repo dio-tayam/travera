@@ -63,7 +63,7 @@ export function ShareViewClient({ trip, owner, days, stops }: Props) {
         {trip.cover_image_url && (
           <div className="mt-6 h-48 overflow-hidden rounded-[var(--radius-panel)] border border-line bg-sunken sm:h-72">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={trip.cover_image_url} alt="" className="h-full w-full object-cover" decoding="async" />
+            <img src={trip.cover_image_url} alt="" className="h-full w-full object-cover" decoding="async" referrerPolicy="no-referrer" />
           </div>
         )}
 

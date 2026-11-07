@@ -44,6 +44,7 @@ export function TripPass({ trip, className }: { trip: Trip; className?: string }
         <div className="relative h-32 overflow-hidden border-b border-line bg-sunken">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={trip.cover_image_url} alt="" loading="lazy" decoding="async"
+               referrerPolicy="no-referrer"
                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
         </div>
       )}
