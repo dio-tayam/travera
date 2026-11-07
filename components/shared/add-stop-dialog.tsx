@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Check, Loader2, MapPin } from "lucide-react";
@@ -40,28 +40,31 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
   const [search, setSearch] = useState(editingStop?.address ?? prefill?.address ?? "");
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchEnabled, setSearchEnabled] = useState(false);
   const [active, setActive] = useState(-1);
-  const typed = useRef(false); // only search after the user types, not for prefilled values
 
   useEffect(() => {
-    if (!typed.current) return;
     const q = search.trim();
-    if (q.length < 3) { setResults([]); setSearching(false); return; }
+    if (!searchEnabled || q.length < 3) { setResults([]); setSearching(false); setHasSearched(false); return; }
     const ctrl = new AbortController();
-    setSearching(true);
+    setHasSearched(false);
     const id = setTimeout(() => {
+      setSearching(true);
       searchPlaces(q, near, ctrl.signal)
-        .then(r => { setResults(r); setActive(-1); })
-        .catch(() => { /* aborted or offline */ })
+        .then(r => { setResults(r); setActive(-1); setHasSearched(true); })
+        .catch(() => { if (!ctrl.signal.aborted) { setResults([]); setHasSearched(true); } })
         .finally(() => { if (!ctrl.signal.aborted) setSearching(false); });
     }, 350);
     return () => { clearTimeout(id); ctrl.abort(); };
-  }, [search, near]);
+  }, [search, near, searchEnabled]);
 
   function selectPlace(p: PlaceResult) {
-    typed.current = false;
+    setSearchEnabled(false);
     setSearch(p.address);
     setResults([]);
+    setSearching(false);
+    setHasSearched(false);
     setForm(f => ({ ...f, title: f.title?.trim() ? f.title : p.title, address: p.address, lat: p.lat, lng: p.lng, place_id: p.placeId }));
   }
 
@@ -70,7 +73,7 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
     if (e.key === "ArrowDown") { e.preventDefault(); setActive(a => (a + 1) % results.length); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setActive(a => (a <= 0 ? results.length - 1 : a - 1)); }
     else if (e.key === "Enter" && active >= 0) { e.preventDefault(); selectPlace(results[active]); }
-    else if (e.key === "Escape") { e.stopPropagation(); setResults([]); }
+    else if (e.key === "Escape") { e.stopPropagation(); setResults([]); setHasSearched(false); }
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -129,12 +132,15 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
           <div className="relative">
             <MapPin size={15} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden="true" />
             <Input id="stop-address" value={search} autoComplete="off" role="combobox"
-                   aria-expanded={results.length > 0} aria-controls="stop-address-results"
+                   aria-expanded={results.length > 0 || (hasSearched && !searching)} aria-controls="stop-address-results"
                    aria-activedescendant={active >= 0 ? `place-${active}` : undefined}
                    placeholder={t("itinerary.searchPlace")} className="ps-9 pe-9"
                    onKeyDown={onSearchKey}
                    onChange={e => {
-                     typed.current = true;
+                     setSearchEnabled(true);
+                     setHasSearched(false);
+                     setResults([]);
+                     setSearching(e.target.value.trim().length >= 3);
                      setSearch(e.target.value);
                      setForm(f => ({ ...f, address: e.target.value || null, lat: null, lng: null, place_id: null }));
                    }} />
@@ -142,22 +148,24 @@ export function AddStopDialog({ open, onClose, tripId, dayId, editingStop, prefi
               {searching ? <Loader2 size={15} className="animate-spin text-ink-3" />
                 : form.lat != null ? <Check size={15} className="text-positive" aria-label={t("itinerary.pinned")} /> : null}
             </span>
-            {results.length > 0 && (
+            {(results.length > 0 || (hasSearched && !searching)) && (
               <ul id="stop-address-results" role="listbox"
                   className="absolute inset-x-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-[12px] border border-line bg-surface p-1 shadow-[0_16px_40px_-16px_rgb(22_24_29/0.3)]">
-                {results.map((p, i) => (
-                  <li key={`${p.placeId ?? ""}-${i}`} id={`place-${i}`} role="option" aria-selected={active === i}>
-                    <button type="button" onClick={() => selectPlace(p)} onMouseEnter={() => setActive(i)}
-                            className={cn("flex w-full items-start gap-2.5 rounded-[8px] px-3 py-2 text-start", active === i && "bg-sunken")}>
-                      <MapPin size={14} className="mt-0.5 shrink-0 text-ink-3" aria-hidden="true" />
-                      <span className="min-w-0">
-                        <span className="block truncate text-[13px] text-ink">{p.title}</span>
-                        {p.subtitle && <span className="block truncate text-[12px] text-ink-3">{p.subtitle}</span>}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-                <li className="px-3 pb-1 pt-1.5 text-[10.5px] text-ink-3">{t("itinerary.attribution")}</li>
+                {results.length > 0 ? <>
+                  {results.map((p, i) => (
+                    <li key={`${p.placeId ?? ""}-${i}`} id={`place-${i}`} role="option" aria-selected={active === i}>
+                      <button type="button" onClick={() => selectPlace(p)} onMouseEnter={() => setActive(i)}
+                              className={cn("flex w-full items-start gap-2.5 rounded-[8px] px-3 py-2 text-start", active === i && "bg-sunken")}>
+                        <MapPin size={14} className="mt-0.5 shrink-0 text-ink-3" aria-hidden="true" />
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] text-ink">{p.title}</span>
+                          {p.subtitle && <span className="block truncate text-[12px] text-ink-3">{p.subtitle}</span>}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  <li className="px-3 pb-1 pt-1.5 text-[10.5px] text-ink-3">{t("itinerary.attribution")}</li>
+                </> : <li className="px-3 py-2 text-[12px] text-ink-3">{t("common.noResults")}</li>}
               </ul>
             )}
           </div>

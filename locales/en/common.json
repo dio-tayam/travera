@@ -796,6 +796,8 @@
   },
   "map": {
     "loading": "Loading map…",
+    "searchPlace": "Search the map",
+    "searchPlaceholder": "Search places or addresses",
     "droppedPin": "Dropped pin",
     "noGeo": "Location isn't available in this browser.",
     "geoBlocked": "Location access was blocked. Allow it in your browser settings to use live location.",

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type GeoJSONSource, type Map as MLMap, type Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  Bike, Car, Clock, ExternalLink, Footprints, LocateFixed, MapPinOff, MapPinned, Maximize2, Navigation, Plus, X,
+  Bike, Car, Clock, ExternalLink, Footprints, Loader2, LocateFixed, MapPin, MapPinOff, MapPinned, Maximize2, Navigation, Plus, Search, X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Database } from "@/types/database";
@@ -12,8 +12,8 @@ import { STOP_META } from "@/lib/categories";
 import { cn, getStopTypeColor } from "@/lib/utils";
 import {
   GEOFENCE_METERS, MAP_STYLE_URL, circleRing, formatDistance, formatTravelTime, googleMapsDirectionsTo,
-  googleMapsDirectionsUrl, haversine, openStreetMapUrl, reverseGeocode, routeBetween,
-  type LatLng, type Leg, type TravelMode,
+  googleMapsDirectionsUrl, haversine, openStreetMapUrl, reverseGeocode, routeBetween, searchPlaces,
+  type LatLng, type Leg, type PlaceResult, type TravelMode,
 } from "@/lib/maps";
 import { MapPlaceholder } from "./map-placeholder";
 
@@ -73,6 +73,11 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
   const [tracking, setTracking] = useState(false);
   const [me, setMe] = useState<{ pos: LatLng; accuracy: number } | null>(null);
   const [notice, setNotice] = useState<{ tone: "positive" | "negative"; text: string } | null>(null);
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
+  const [searchingPlaces, setSearchingPlaces] = useState(false);
+  const [hasSearchedPlaces, setHasSearchedPlaces] = useState(false);
+  const [activePlace, setActivePlace] = useState(-1);
   const arrivedAt = useRef(new Set<string>());
   const centeredOnMe = useRef(false);
   const markers = useRef(new Map<string, { marker: Marker; el: HTMLButtonElement }>());
@@ -104,6 +109,44 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
     [stops]
   );
   const routeKey = located.map(({ stop }) => `${stop.id}@${stop.lat},${stop.lng}`).join("|");
+  const searchNear = located.length
+    ? { lat: located.reduce((sum, x) => sum + x.stop.lat!, 0) / located.length,
+        lng: located.reduce((sum, x) => sum + x.stop.lng!, 0) / located.length }
+    : null;
+
+  useEffect(() => {
+    const query = placeQuery.trim();
+    if (query.length < 3) { setPlaceResults([]); setSearchingPlaces(false); setHasSearchedPlaces(false); return; }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setSearchingPlaces(true);
+      searchPlaces(query, searchNear, controller.signal)
+        .then(results => { setPlaceResults(results); setActivePlace(-1); setHasSearchedPlaces(true); })
+        .catch(() => { if (!controller.signal.aborted) { setPlaceResults([]); setHasSearchedPlaces(true); } })
+        .finally(() => { if (!controller.signal.aborted) setSearchingPlaces(false); });
+    }, 300);
+    return () => { window.clearTimeout(timeout); controller.abort(); };
+  }, [placeQuery, searchNear?.lat, searchNear?.lng]);
+
+  function selectPlace(place: PlaceResult) {
+    setPlaceResults([]);
+    setHasSearchedPlaces(false);
+    setPending({ title: place.title, address: place.address, lat: place.lat, lng: place.lng, placeId: place.placeId });
+    select(null);
+    map?.flyTo({ center: [place.lng, place.lat], zoom: 15, duration: 700 });
+  }
+
+  function handlePlaceSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" && placeResults.length) {
+      e.preventDefault(); setActivePlace(index => (index + 1) % placeResults.length);
+    } else if (e.key === "ArrowUp" && placeResults.length) {
+      e.preventDefault(); setActivePlace(index => index <= 0 ? placeResults.length - 1 : index - 1);
+    } else if (e.key === "Enter" && activePlace >= 0) {
+      e.preventDefault(); selectPlace(placeResults[activePlace]);
+    } else if (e.key === "Escape") {
+      setPlaceResults([]);
+    }
+  }
 
   /* ── Create the map ─────────────────────────────────────────────────── */
   useEffect(() => {
@@ -408,24 +451,57 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
                 <X size={14} />
               </button>
             </div>
-            <button onClick={() => { onAddPlace?.(pending); setPending(null); }}
+            {onAddPlace && <button onClick={() => { onAddPlace(pending); setPending(null); }}
                     className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-[10px] bg-ink text-[13px] font-medium text-paper hover:bg-[#2a2d35]">
               <Plus size={14} /> {t("map.addToDay")}
-            </button>
+            </button>}
           </div>
         </div>
       )}
 
       {/* ── Toolbar ─────────────────────────────────────────────────── */}
-      <div className="pointer-events-none absolute right-3 top-3 z-[6] flex flex-wrap items-center justify-end gap-2">
+      <div className="absolute inset-x-3 top-3 z-[8] flex items-start gap-2">
+      <div className="relative min-w-0 max-w-[320px] flex-1">
+        <div className="flex h-10 items-center gap-2 rounded-[12px] border border-line bg-surface/95 px-3 shadow-[0_8px_24px_-14px_rgb(22_24_29/0.4)] backdrop-blur">
+          {searchingPlaces ? <Loader2 size={15} className="shrink-0 animate-spin text-ink-3" aria-hidden="true" />
+            : <Search size={15} className="shrink-0 text-ink-3" aria-hidden="true" />}
+          <input value={placeQuery} onChange={e => { setPlaceQuery(e.target.value); setPlaceResults([]); setHasSearchedPlaces(false); }}
+                 onKeyDown={handlePlaceSearchKey} placeholder={t("map.searchPlaceholder")} aria-label={t("map.searchPlace")}
+                 role="combobox" aria-expanded={placeResults.length > 0} aria-controls="map-place-results"
+                 aria-activedescendant={activePlace >= 0 ? `map-place-${activePlace}` : undefined}
+                 autoComplete="off" className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-3" />
+          {placeQuery && <button type="button" onClick={() => { setPlaceQuery(""); setPlaceResults([]); setHasSearchedPlaces(false); }}
+                                 aria-label={t("common.clear")} className="rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink">
+            <X size={14} />
+          </button>}
+        </div>
+        {(placeResults.length > 0 || (hasSearchedPlaces && !searchingPlaces)) && (
+          <ul id="map-place-results" role="listbox" className="mt-1 max-h-64 overflow-y-auto rounded-[12px] border border-line bg-surface p-1 shadow-[0_16px_40px_-16px_rgb(22_24_29/0.3)]">
+            {placeResults.length > 0 ? placeResults.map((place, index) => (
+              <li key={`${place.placeId ?? place.address}-${index}`} id={`map-place-${index}`} role="option" aria-selected={activePlace === index}>
+                <button type="button" onClick={() => selectPlace(place)} onMouseEnter={() => setActivePlace(index)}
+                        className={cn("flex w-full items-start gap-2.5 rounded-[8px] px-3 py-2 text-start", activePlace === index && "bg-sunken")}>
+                  <MapPin size={14} className="mt-0.5 shrink-0 text-ink-3" aria-hidden="true" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] text-ink">{place.title}</span>
+                    {place.subtitle && <span className="block truncate text-[12px] text-ink-3">{place.subtitle}</span>}
+                  </span>
+                </button>
+              </li>
+            )) : <li className="px-3 py-2 text-[12px] text-ink-3">{t("common.noResults")}</li>}
+            {placeResults.length > 0 && <li className="px-3 pb-1 pt-1.5 text-[10.5px] text-ink-3">{t("itinerary.attribution")}</li>}
+          </ul>
+        )}
+      </div>
+      <div className="pointer-events-none flex shrink-0 items-center justify-end gap-2">
         {located.length >= 2 && (
           <div role="radiogroup" aria-label={t("map.travelMode")}
                className="pointer-events-auto flex rounded-[12px] border border-line bg-surface/95 p-1 shadow-[0_8px_24px_-14px_rgb(22_24_29/0.4)] backdrop-blur">
             {MODES.map(({ mode: m, icon: Icon, key }) => { const label = t(`map.modes.${key}`); return (
-              <button key={m} role="radio" aria-checked={mode === m} onClick={() => changeMode(m)} title={label}
-                      className={cn("flex h-8 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-medium transition-colors",
+              <button key={m} role="radio" aria-checked={mode === m} onClick={() => changeMode(m)} title={label} aria-label={label}
+                      className={cn("flex h-8 w-8 items-center justify-center rounded-[8px] text-[12px] font-medium transition-colors",
                                     mode === m ? "bg-ink text-paper" : "text-ink-2 hover:bg-sunken hover:text-ink")}>
-                <Icon size={14} aria-hidden="true" /><span className="hidden sm:inline">{label}</span>
+                <Icon size={15} aria-hidden="true" />
               </button>
             ); })}
           </div>
@@ -444,6 +520,7 @@ export function TripMap({ stops, selectedId, onSelect, onLegs, onAddPlace }: Tri
             </a>
           )}
         </div>
+      </div>
       </div>
 
       {/* ── Notices (arrival / errors) ──────────────────────────────── */}
